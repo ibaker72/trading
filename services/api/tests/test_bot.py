@@ -61,6 +61,8 @@ class TestTradingBotEngine:
         settings.alpaca_feed = "iex"
         settings.watchlist_stocks = "AAPL,SPY"
         settings.watchlist_crypto = "BTC/USD"
+        settings.stop_loss_pct = 1.0
+        settings.take_profit_pct = 2.0
         return settings
 
     def setup_method(self):
@@ -156,7 +158,9 @@ class TestTradingBotEngine:
 
         mock_broker = MagicMock()
         mock_broker.get_account.return_value = {"equity": "100000.00"}
-        mock_broker.place_market_order.return_value = {"id": "order1", "filled_avg_price": "150.00"}
+        mock_broker.get_positions.return_value = [{"symbol": "AAPL", "current_price": "150.00"}]
+        mock_broker.get_orders.return_value = []  # no exits to reconcile
+        mock_broker.place_bracket_order.return_value = {"id": "order1", "filled_avg_price": "150.00"}
         engine._broker = mock_broker
 
         mock_scan_result = WatchlistScanResult(

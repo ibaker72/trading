@@ -71,6 +71,87 @@ class AlpacaBroker:
             resp.raise_for_status()
             return resp.json()
 
+    def place_limit_order(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        limit_price: float,
+        asset_class: AssetClass = "stock",
+    ) -> dict:
+        time_in_force = "gtc" if asset_class == "crypto" else "day"
+        body = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": side,
+            "type": "limit",
+            "limit_price": limit_price,
+            "time_in_force": time_in_force,
+        }
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                f"{self._base_url}/v2/orders",
+                json=body,
+                headers=self._headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    def place_stop_order(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        stop_price: float,
+        asset_class: AssetClass = "stock",
+    ) -> dict:
+        time_in_force = "gtc" if asset_class == "crypto" else "day"
+        body = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": side,
+            "type": "stop",
+            "stop_price": stop_price,
+            "time_in_force": time_in_force,
+        }
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                f"{self._base_url}/v2/orders",
+                json=body,
+                headers=self._headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    def place_bracket_order(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        take_profit_price: float,
+        stop_loss_price: float,
+        asset_class: AssetClass = "stock",
+    ) -> dict:
+        time_in_force = "gtc" if asset_class == "crypto" else "day"
+        body = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": side,
+            "type": "market",
+            "time_in_force": time_in_force,
+            "order_class": "bracket",
+            "take_profit": {"limit_price": take_profit_price},
+            "stop_loss": {"stop_price": stop_loss_price},
+        }
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                f"{self._base_url}/v2/orders",
+                json=body,
+                headers=self._headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     def cancel_order(self, order_id: str) -> bool:
         with httpx.Client(timeout=10) as client:
             resp = client.delete(

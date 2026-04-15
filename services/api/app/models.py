@@ -169,3 +169,31 @@ class PaperOrder(Base):
     )
     rejection_reason = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class TradeJournal(Base):
+    __tablename__ = "trade_journal"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    asset_class = Column(Enum("stock", "crypto", name="trade_journal_asset_class_enum"), nullable=False)
+    entry_order_id = Column(String(255), nullable=False, index=True)
+    exit_order_id = Column(String(255), nullable=True, index=True)
+    entry_price = Column(Float, nullable=False)
+    exit_price = Column(Float, nullable=True)
+    quantity = Column(Float, nullable=False)
+    side = Column(Enum("buy", "sell", name="trade_journal_side_enum"), nullable=False)
+    stop_loss_price = Column(Float, nullable=False)
+    take_profit_price = Column(Float, nullable=False)
+    entry_signal_rules = Column(JSON, nullable=False, default=list)
+    realized_pnl = Column(Float, nullable=True)
+    status = Column(
+        Enum("open", "closed", "stopped_out", "took_profit", name="trade_journal_status_enum"),
+        nullable=False,
+        default="open",
+        index=True,
+    )
+    opened_at = Column(DateTime(timezone=True), nullable=False)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

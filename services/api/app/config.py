@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     watchlist_stocks: str = "AAPL,NVDA,TSLA,SPY,QQQ"
     watchlist_crypto: str = "BTC/USD,ETH/USD"
     scan_interval_seconds: int = 60
+    stop_loss_pct: float = 1.0
+    take_profit_pct: float = 2.0
 
     model_config = SettingsConfigDict(
         env_file=".env",
