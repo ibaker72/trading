@@ -2,6 +2,8 @@
   "name": "trading",
   "version": "1.0.0",
   "scripts": {
+    "dev": "npm run dev:web",
+    "build": "npm run build:web",
     "dev:web": "cd apps/web && npm run dev",
     "build:web": "cd apps/web && npm run build"
   }
