@@ -1,1 +1,59 @@
 # trading
+
+Phase 1-6 scaffold for a personal trading assistant platform.
+
+## Structure
+- `services/api` FastAPI backend (auth + health + market data + strategy scanning + risk guardrails + paper trading)
+- `services/worker` worker prototype scripts
+- `apps/web` frontend placeholder
+- `docs` architecture notes
+- `.github/workflows` CI for API tests
+
+## Local API run
+```bash
+cd services/api
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+## Run tests
+```bash
+cd services/api
+pytest -q
+```
+
+## API endpoints
+- `GET /health/live`
+- `GET /health/ready`
+- `POST /auth/signup`
+- `POST /auth/login`
+- `GET /auth/me`
+- `GET /markets/assets`
+- `GET /markets/quote`
+- `GET /markets/candles`
+- `GET /markets/candles/quality`
+- `POST /strategies`
+- `GET /strategies`
+- `POST /strategies/{strategy_id}/scan`
+- `GET /strategies/signals`
+- `POST /risk/policies`
+- `GET /risk/policies/{user_id}`
+- `POST /risk/kill-switch/global`
+- `POST /risk/kill-switch/user/{user_id}`
+- `POST /risk/check-intent`
+- `GET /risk/events/{user_id}`
+- `POST /paper/accounts`
+- `GET /paper/accounts/{user_id}`
+- `POST /paper/orders/market`
+- `POST /paper/orders/{order_id}/cancel`
+- `GET /paper/orders/{user_id}`
+- `GET /paper/positions/{user_id}`
+- `GET /paper/pnl/{user_id}`
+- `POST /paper/reconcile/{user_id}`
+
+## Docker compose
+```bash
+docker compose up --build
+```
