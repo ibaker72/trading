@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -19,6 +19,8 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import {
   getBotSummary,
@@ -32,6 +34,7 @@ import {
   stopBot,
   pauseBot,
   setKillSwitch,
+  WS_BASE_URL,
   type BotSummary,
   type WatchlistScanResult,
   type Position,
@@ -39,6 +42,7 @@ import {
   type PortfolioHistory,
   type Performance,
   type TradeJournalEntry,
+  type MarketTick,
 } from "@/lib/api";
 
 function StatusBadge({ status }: { status: string }) {
@@ -86,6 +90,34 @@ function SideIcon({ side }: { side: string }) {
   return <Minus className="inline w-4 h-4 text-gray-400" />;
 }
 
+interface Toast {
+  id: number;
+  msg: string;
+  type: "info" | "success" | "error";
+}
+
+function ToastContainer({ toasts }: { toasts: Toast[] }) {
+  if (toasts.length === 0) return null;
+  return (
+    <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={`px-4 py-2 rounded text-xs font-bold shadow-lg border ${
+            t.type === "success"
+              ? "bg-green-900 border-green-700 text-green-200"
+              : t.type === "error"
+              ? "bg-red-900 border-red-700 text-red-200"
+              : "bg-gray-800 border-gray-700 text-gray-200"
+          }`}
+        >
+          {t.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [summary, setSummary] = useState<BotSummary | null>(null);
   const [scan, setScan] = useState<WatchlistScanResult | null>(null);
@@ -96,6 +128,18 @@ export default function Dashboard() {
   const [portfolio, setPortfolio] = useState<PortfolioHistory | null>(null);
   const [killSwitch, setKillSwitchState] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+  const [wsConnected, setWsConnected] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
+  const wsRef = useRef<WebSocket | null>(null);
+  const prevTradeIdsRef = useRef<Set<number>>(new Set());
+
+  const addToast = useCallback((msg: string, type: Toast["type"] = "info") => {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, msg, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  }, []);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -112,6 +156,22 @@ export default function Dashboard() {
       if (perf) setPerformance(perf);
       setTrades(tradeList);
 
+      // Toast on newly closed trades
+      if (tradeList.length > 0) {
+        for (const t of tradeList) {
+          if (!prevTradeIdsRef.current.has(t.id) && t.status !== "open") {
+            const pnlStr = t.realized_pnl != null
+              ? ` P&L: ${t.realized_pnl >= 0 ? "+" : ""}$${t.realized_pnl.toFixed(2)}`
+              : "";
+            addToast(
+              `${t.symbol} ${t.status.replace("_", " ")}${pnlStr}`,
+              t.status === "took_profit" ? "success" : t.status === "stopped_out" ? "error" : "info",
+            );
+          }
+        }
+        prevTradeIdsRef.current = new Set(tradeList.map((t) => t.id));
+      }
+
       getPositions()
         .then(setPositions)
         .catch(() => {});
@@ -123,6 +183,44 @@ export default function Dashboard() {
     }
   }, []);
 
+  // WebSocket live price feed
+  useEffect(() => {
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      const ws = new WebSocket(`${WS_BASE_URL}/ws/market`);
+      wsRef.current = ws;
+
+      ws.onopen = () => setWsConnected(true);
+
+      ws.onmessage = (event) => {
+        try {
+          const tick: MarketTick = JSON.parse(event.data);
+          if (tick.type === "tick" && tick.symbol && tick.price != null) {
+            setLivePrices((prev) => ({ ...prev, [tick.symbol!]: tick.price! }));
+          }
+        } catch {
+          // ignore parse errors
+        }
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        reconnectTimer = setTimeout(connect, 5000);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    connect();
+
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+    };
+  }, []);
+
+  // Periodic data refresh (30s fallback)
   useEffect(() => {
     fetchAll();
     const id = setInterval(fetchAll, 30_000);
@@ -139,12 +237,20 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-950 p-4">
+      <ToastContainer toasts={toasts} />
       {/* Header */}
       <div className="flex items-center justify-between mb-6 border-b border-gray-800 pb-4">
         <div className="flex items-center gap-3">
           <Activity className="w-6 h-6 text-green-400" />
           <h1 className="text-xl font-bold tracking-wider">TRADING BOT</h1>
           {summary && <StatusBadge status={summary.status} />}
+          <span
+            title={wsConnected ? "Live feed connected" : "Live feed disconnected"}
+            className={`inline-flex items-center gap-1 text-xs ${wsConnected ? "text-green-400" : "text-gray-600"}`}
+          >
+            {wsConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+            {wsConnected ? "LIVE" : "OFFLINE"}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           {/* Kill switch */}
@@ -300,6 +406,7 @@ export default function Dashboard() {
             <tr className="text-gray-500 border-b border-gray-800">
               <th className="text-left py-1 pr-4">SYMBOL</th>
               <th className="text-left py-1 pr-4">CLASS</th>
+              <th className="text-right py-1 pr-4">LIVE</th>
               <th className="text-right py-1 pr-4">SCORE</th>
               <th className="text-left py-1 pr-4">TIMEFRAMES</th>
               <th className="text-left py-1 pr-4">SIDE</th>
@@ -314,6 +421,11 @@ export default function Dashboard() {
               >
                 <td className="py-1.5 pr-4 font-bold">{r.symbol}</td>
                 <td className="py-1.5 pr-4 text-gray-400">{r.asset_class}</td>
+                <td className="py-1.5 pr-4 text-right font-mono text-cyan-400">
+                  {livePrices[r.symbol] != null
+                    ? `$${livePrices[r.symbol].toFixed(2)}`
+                    : <span className="text-gray-700">—</span>}
+                </td>
                 <td className="py-1.5 pr-4 text-right">
                   <span
                     className={
@@ -349,7 +461,7 @@ export default function Dashboard() {
             ))}
             {(scan?.results ?? []).length === 0 && (
               <tr>
-                <td colSpan={6} className="py-4 text-center text-gray-600">
+                <td colSpan={7} className="py-4 text-center text-gray-600">
                   No scan data
                 </td>
               </tr>

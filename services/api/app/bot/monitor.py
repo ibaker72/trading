@@ -17,7 +17,7 @@ class PositionMonitor:
     def __init__(self, broker) -> None:
         self._broker = broker
 
-    def check_exits(self, db: Session) -> int:
+    def check_exits(self, db: Session, notif_svc=None) -> int:
         """
         Query Alpaca for closed orders and match them to open TradeJournal rows.
         Returns the number of exits reconciled.
@@ -85,6 +85,19 @@ class PositionMonitor:
                 pnl,
                 new_status,
             )
+
+            if notif_svc is not None:
+                try:
+                    notif_svc.trade_exited(
+                        symbol=entry.symbol,
+                        side=entry.side,
+                        qty=entry.quantity,
+                        exit_price=fill_price,
+                        pnl=pnl,
+                        status=new_status,
+                    )
+                except Exception:
+                    pass
 
         if reconciled:
             db.commit()

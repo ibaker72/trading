@@ -197,3 +197,41 @@ class TradeJournal(Base):
     opened_at = Column(DateTime(timezone=True), nullable=False)
     closed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class BotSession(Base):
+    __tablename__ = "bot_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(
+        Enum("STOPPED", "RUNNING", "PAUSED", "ERROR", name="bot_session_status_enum"),
+        nullable=False,
+        default="STOPPED",
+    )
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    last_scan_at = Column(DateTime(timezone=True), nullable=True)
+    last_signal_at = Column(DateTime(timezone=True), nullable=True)
+    trades_today = Column(Integer, nullable=False, default=0)
+    errors_today = Column(Integer, nullable=False, default=0)
+    last_error = Column(String(500), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class NotificationConfig(Base):
+    __tablename__ = "notification_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    webhook_url = Column(String(500), nullable=True)
+    email_to = Column(String(255), nullable=True)
+    smtp_host = Column(String(255), nullable=True)
+    smtp_port = Column(Integer, nullable=True, default=587)
+    smtp_user = Column(String(255), nullable=True)
+    smtp_password = Column(String(255), nullable=True)
+    smtp_tls = Column(Boolean, nullable=False, default=True)
+    notify_on_trade = Column(Boolean, nullable=False, default=True)
+    notify_on_error = Column(Boolean, nullable=False, default=True)
+    notify_on_kill_switch = Column(Boolean, nullable=False, default=True)
+    notify_on_daily_summary = Column(Boolean, nullable=False, default=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
