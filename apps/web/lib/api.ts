@@ -3,7 +3,19 @@ import axios from "axios";
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export const WS_BASE_URL = BASE_URL.replace(/^http/, "ws");
+
 const api = axios.create({ baseURL: BASE_URL });
+
+export interface MarketTick {
+  type: "tick" | "ping";
+  symbol?: string;
+  price?: number;
+  bid?: number;
+  ask?: number;
+  asset_class?: string;
+  timestamp?: string;
+}
 
 export interface BotStatus {
   status: string;

@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import Base, engine
 from app.routers import auth, health, markets, paper, risk, strategies
-from app.routers import broker, scanner, bot, analytics
+from app.routers import broker, scanner, bot, analytics, notifications as notifications_router
+from app.routers import ws as ws_router
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -21,6 +22,14 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
+    # Rehydrate bot state from last DB session
+    from app.database import SessionLocal
+    from app.bot.state import rehydrate
+    db = SessionLocal()
+    try:
+        rehydrate(db)
+    finally:
+        db.close()
     from app.bot.scheduler import start_scheduler
     start_scheduler(app)
 
@@ -41,3 +50,5 @@ app.include_router(broker.router)
 app.include_router(scanner.router)
 app.include_router(bot.router)
 app.include_router(analytics.router)
+app.include_router(notifications_router.router)
+app.include_router(ws_router.router)

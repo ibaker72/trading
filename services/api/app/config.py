@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     stop_loss_pct: float = 1.0
     take_profit_pct: float = 2.0
 
+    # Notifications
+    notify_webhook_url: str = ""
+    notify_email_to: str = ""
+    notify_smtp_host: str = "smtp.gmail.com"
+    notify_smtp_port: int = 587
+    notify_smtp_user: str = ""
+    notify_smtp_password: str = ""
+    notify_smtp_tls: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

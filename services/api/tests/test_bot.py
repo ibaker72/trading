@@ -195,7 +195,8 @@ class TestTradingBotEngine:
 
         db = MagicMock()
         db.query.return_value.filter.return_value.first.side_effect = [
-            None,      # GlobalControl kill switch → None (off)
+            None,         # GlobalControl kill switch → None (off)
+            None,         # NotificationConfig in build_from_db (reconciliation) → None
             mock_policy,  # RiskPolicy
         ]
         db.add = MagicMock()

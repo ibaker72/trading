@@ -127,8 +127,10 @@ class TradingBotEngine:
             if self._broker:
                 try:
                     from app.bot.monitor import PositionMonitor
+                    from app.notifications.service import build_from_db as _build_notif
                     monitor = PositionMonitor(broker=self._broker)
-                    exited = monitor.check_exits(db)
+                    notif_svc = _build_notif(db)
+                    exited = monitor.check_exits(db, notif_svc=notif_svc)
                     if exited:
                         logger.info("Reconciled %d exit(s) this cycle", exited)
                 except Exception as exc:
@@ -224,6 +226,20 @@ class TradingBotEngine:
                     fill_price = float(order_resp.get("filled_avg_price") or approx_price)
                     order_id = order_resp.get("id", "unknown")
 
+                    # Send trade-entered notification (fire-and-forget)
+                    try:
+                        from app.notifications.service import build_from_db as _build_notif
+                        _build_notif(db).trade_entered(
+                            symbol=result.symbol,
+                            side=result.suggested_side,
+                            qty=float(qty),
+                            price=fill_price,
+                            sl=sl_price,
+                            tp=tp_price,
+                        )
+                    except Exception:
+                        pass
+
                     # Record paper order for history endpoint
                     order_record = PaperOrder(
                         user_id=user.id,
@@ -268,11 +284,23 @@ class TradingBotEngine:
                     logger.error("Failed to place order for %s: %s", result.symbol, exc)
                     bot_state.record_error(str(exc))
                     summary["errors"] += 1
+                    try:
+                        from app.notifications.service import build_from_db as _build_notif
+                        _build_notif(db).error_occurred(
+                            f"Order placement failed for {result.symbol}: {exc}"
+                        )
+                    except Exception:
+                        pass
 
         except Exception as exc:
             logger.error("Bot cycle error: %s", exc)
             bot_state.record_error(str(exc))
             summary["errors"] += 1
+            try:
+                from app.notifications.service import build_from_db as _build_notif
+                _build_notif(db).error_occurred(f"Bot cycle error: {exc}")
+            except Exception:
+                pass
 
         return summary
 
