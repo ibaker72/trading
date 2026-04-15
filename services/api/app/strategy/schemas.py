@@ -5,7 +5,17 @@ from pydantic import BaseModel, Field
 
 from app.market_data.schemas import AssetClass
 
-RuleType = Literal["price_breakout", "ma_cross", "rsi_threshold", "volume_spike", "volatility_max"]
+RuleType = Literal[
+    "price_breakout",
+    "ma_cross",
+    "rsi_threshold",
+    "volume_spike",
+    "volatility_max",
+    "gap_up",
+    "gap_down",
+    "vwap_cross",
+    "ema_cross",
+]
 
 
 class StrategyRule(BaseModel):
@@ -56,3 +66,18 @@ class ScanResult(BaseModel):
     generated: bool
     reason: str
     signal: SignalRead | None = None
+
+
+class MultiTimeframeScanResult(BaseModel):
+    symbol: str
+    asset_class: AssetClass
+    fired_timeframes: list[str]
+    aggregate_score: float
+    should_trade: bool
+    suggested_side: Literal["buy", "sell", "none"]
+
+
+class WatchlistScanResult(BaseModel):
+    scanned_at: datetime
+    results: list[MultiTimeframeScanResult]
+    top_pick: MultiTimeframeScanResult | None
