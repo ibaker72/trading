@@ -1,10 +1,10 @@
 # trading
 
-Phase 1-6 scaffold for a personal trading assistant platform.
+Phase 1-7 scaffold for a personal trading assistant platform.
 
 ## Structure
 - `services/api` FastAPI backend (auth + health + market data + strategy scanning + risk guardrails + paper trading)
-- `services/worker` worker prototype scripts
+- `services/worker` queue worker prototype scripts (RQ + Redis)
 - `apps/web` frontend placeholder
 - `docs` architecture notes
 - `.github/workflows` CI for API tests
@@ -16,6 +16,17 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
+```
+
+## Worker run
+```bash
+cd services/worker
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python worker.py
+# in another shell
+python scheduler.py
 ```
 
 ## Run tests

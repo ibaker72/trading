@@ -31,5 +31,32 @@ services:
       - postgres
       - redis
 
+  worker:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./services/worker:/app
+    command: sh -c "pip install -r requirements.txt && python worker.py"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      API_BASE_URL: http://api:8000
+    depends_on:
+      - api
+      - redis
+
+  scheduler:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./services/worker:/app
+    command: sh -c "pip install -r requirements.txt && python scheduler.py"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      API_BASE_URL: http://api:8000
+      RECONCILE_USER_IDS: "1"
+    depends_on:
+      - worker
+      - redis
+
 volumes:
   postgres_data:

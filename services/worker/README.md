@@ -1,13 +1,25 @@
 # Worker
 
-Phase 6 prototype worker scripts.
+Phase 7 queue-based worker prototype (RQ + Redis).
 
-## Reconciliation worker
-`reconcile_worker.py` calls API reconciliation endpoints for paper accounts.
+## Files
+- `worker_queue.py`: Redis and queue setup.
+- `jobs.py`: job functions (currently `reconcile_user`).
+- `scheduler.py`: enqueues reconcile jobs for configured user IDs.
+- `worker.py`: runs the RQ worker.
+- `reconcile_worker.py`: legacy direct-call script from previous phase.
 
-Run locally:
-
+## Local run
 ```bash
 cd services/worker
-python reconcile_worker.py
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python worker.py
+```
+
+In another shell enqueue jobs:
+
+```bash
+python scheduler.py
 ```
