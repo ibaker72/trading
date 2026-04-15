@@ -26,6 +26,8 @@ import {
   getPositions,
   getBotHistory,
   getPortfolioHistory,
+  getPerformance,
+  getTrades,
   startBot,
   stopBot,
   pauseBot,
@@ -35,6 +37,8 @@ import {
   type Position,
   type BotOrder,
   type PortfolioHistory,
+  type Performance,
+  type TradeJournalEntry,
 } from "@/lib/api";
 
 function StatusBadge({ status }: { status: string }) {
@@ -87,20 +91,26 @@ export default function Dashboard() {
   const [scan, setScan] = useState<WatchlistScanResult | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [history, setHistory] = useState<BotOrder[]>([]);
+  const [performance, setPerformance] = useState<Performance | null>(null);
+  const [trades, setTrades] = useState<TradeJournalEntry[]>([]);
   const [portfolio, setPortfolio] = useState<PortfolioHistory | null>(null);
   const [killSwitch, setKillSwitchState] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
-      const [s, sc, hist] = await Promise.all([
+      const [s, sc, hist, perf, tradeList] = await Promise.all([
         getBotSummary().catch(() => null),
         getWatchlistScan().catch(() => null),
         getBotHistory().catch(() => []),
+        getPerformance().catch(() => null),
+        getTrades().catch(() => []),
       ]);
       if (s) setSummary(s);
       if (sc) setScan(sc);
       setHistory(hist);
+      if (perf) setPerformance(perf);
+      setTrades(tradeList);
 
       getPositions()
         .then(setPositions)
@@ -204,6 +214,32 @@ export default function Dashboard() {
             summary?.last_scan_at
               ? new Date(summary.last_scan_at).toLocaleTimeString()
               : "—"
+          }
+        />
+      </div>
+
+      {/* Performance Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <MetricCard
+          label="WIN RATE"
+          value={performance ? `${(performance.win_rate * 100).toFixed(1)}%` : "—"}
+          sub={performance ? `${performance.total_trades} total trades` : undefined}
+        />
+        <MetricCard
+          label="SHARPE RATIO"
+          value={performance ? performance.sharpe.toFixed(2) : "—"}
+        />
+        <MetricCard
+          label="MAX DRAWDOWN"
+          value={performance ? `${(performance.max_drawdown * 100).toFixed(2)}%` : "—"}
+        />
+        <MetricCard
+          label="WIN/LOSS RATIO"
+          value={performance ? performance.ratio.toFixed(2) : "—"}
+          sub={
+            performance
+              ? `avg win $${performance.avg_win.toFixed(2)} / loss $${performance.avg_loss.toFixed(2)}`
+              : undefined
           }
         />
       </div>
@@ -414,6 +450,86 @@ export default function Dashboard() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Trade Journal */}
+      <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6 overflow-x-auto">
+        <h2 className="text-xs text-gray-400 mb-3 font-bold tracking-wider">
+          TRADE JOURNAL
+        </h2>
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-gray-500 border-b border-gray-800">
+              <th className="text-left py-1 pr-3">SYMBOL</th>
+              <th className="text-left py-1 pr-3">SIDE</th>
+              <th className="text-right py-1 pr-3">ENTRY</th>
+              <th className="text-right py-1 pr-3">EXIT</th>
+              <th className="text-right py-1 pr-3">SL</th>
+              <th className="text-right py-1 pr-3">TP</th>
+              <th className="text-right py-1 pr-3">P&L</th>
+              <th className="text-left py-1 pr-3">STATUS</th>
+              <th className="text-left py-1">OPENED</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trades.map((t) => {
+              const statusColors: Record<string, string> = {
+                open: "text-yellow-400",
+                closed: "text-gray-400",
+                took_profit: "text-green-400",
+                stopped_out: "text-red-400",
+              };
+              const pnlColor =
+                t.realized_pnl == null
+                  ? "text-gray-500"
+                  : t.realized_pnl >= 0
+                  ? "text-green-400"
+                  : "text-red-400";
+              return (
+                <tr key={t.id} className="border-b border-gray-800/50">
+                  <td className="py-1.5 pr-3 font-bold">{t.symbol}</td>
+                  <td
+                    className={`py-1.5 pr-3 ${t.side === "buy" ? "text-green-400" : "text-red-400"}`}
+                  >
+                    {t.side.toUpperCase()}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right">
+                    ${t.entry_price.toFixed(4)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right">
+                    {t.exit_price != null ? `$${t.exit_price.toFixed(4)}` : "—"}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right text-red-400/70">
+                    ${t.stop_loss_price.toFixed(4)}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right text-green-400/70">
+                    ${t.take_profit_price.toFixed(4)}
+                  </td>
+                  <td className={`py-1.5 pr-3 text-right font-bold ${pnlColor}`}>
+                    {t.realized_pnl != null
+                      ? `${t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}`
+                      : "—"}
+                  </td>
+                  <td
+                    className={`py-1.5 pr-3 ${statusColors[t.status] ?? "text-gray-400"}`}
+                  >
+                    {t.status.replace("_", " ").toUpperCase()}
+                  </td>
+                  <td className="py-1.5 text-gray-500">
+                    {new Date(t.opened_at).toLocaleTimeString()}
+                  </td>
+                </tr>
+              );
+            })}
+            {trades.length === 0 && (
+              <tr>
+                <td colSpan={9} className="py-4 text-center text-gray-600">
+                  No trade journal entries yet
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

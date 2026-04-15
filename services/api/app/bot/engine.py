@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.bot import state as bot_state
 from app.market_data.schemas import AssetClass
-from app.models import GlobalControl, PaperAccount, PaperOrder, RiskPolicy, User
+from app.models import GlobalControl, PaperAccount, PaperOrder, RiskPolicy, TradeJournal, User
 from app.risk.schemas import OrderIntent
 from app.risk.service import evaluate_order_intent
 from app.strategy.schemas import StrategyRule
@@ -90,7 +90,6 @@ class TradingBotEngine:
         db.add(user)
         db.flush()
 
-        # Create default risk policy
         policy = RiskPolicy(
             user_id=1,
             max_risk_per_trade_pct=1.0,
@@ -102,7 +101,6 @@ class TradingBotEngine:
         )
         db.add(policy)
 
-        # Create paper account
         account = PaperAccount(user_id=1, cash_balance=100000.0, equity=100000.0)
         db.add(account)
 
@@ -125,15 +123,29 @@ class TradingBotEngine:
             if current_status != bot_state.BotStatus.RUNNING:
                 return summary
 
-            # c. Scan watchlist
+            # c. Reconcile exits from previous entries
+            if self._broker:
+                try:
+                    from app.bot.monitor import PositionMonitor
+                    monitor = PositionMonitor(broker=self._broker)
+                    exited = monitor.check_exits(db)
+                    if exited:
+                        logger.info("Reconciled %d exit(s) this cycle", exited)
+                except Exception as exc:
+                    logger.warning("Exit reconciliation error: %s", exc)
+
+            # d. Scan watchlist
             watchlist = self._build_watchlist()
             scan_result = self._scanner.scan_watchlist(watchlist)
             bot_state.record_scan()
             summary["scanned"] = len(scan_result.results)
 
-            # d. Process signals
+            # e. Process signals
             user = self._ensure_bot_user(db)
             policy = db.query(RiskPolicy).filter(RiskPolicy.user_id == user.id).first()
+
+            sl_pct = getattr(self._settings, "stop_loss_pct", 1.0) / 100.0
+            tp_pct = getattr(self._settings, "take_profit_pct", 2.0) / 100.0
 
             for result in scan_result.results:
                 if not result.should_trade or result.suggested_side == "none":
@@ -155,13 +167,13 @@ class TradingBotEngine:
                     equity = 100000.0
 
                 # Risk check
-                entry_price = equity * 0.01  # rough estimate — 1% of equity as proxy price
+                entry_price_proxy = equity * 0.01
                 intent = OrderIntent(
                     user_id=user.id,
                     symbol=result.symbol,
                     account_equity=equity,
-                    entry_price=max(entry_price, 1.0),
-                    stop_price=max(entry_price * 0.99, 0.01),
+                    entry_price=max(entry_price_proxy, 1.0),
+                    stop_price=max(entry_price_proxy * (1 - sl_pct), 0.01),
                     daily_pnl=0.0,
                     open_positions=0,
                     consecutive_losses_today=0,
@@ -180,9 +192,7 @@ class TradingBotEngine:
                         consecutive_loss_limit=policy.consecutive_loss_limit,
                     )
                     if not decision.approved:
-                        logger.info(
-                            "Order for %s rejected: %s", result.symbol, decision.reason_codes
-                        )
+                        logger.info("Order for %s rejected: %s", result.symbol, decision.reason_codes)
                         continue
                     qty = decision.position_sizing.suggested_quantity if decision.position_sizing else 1
                 else:
@@ -190,16 +200,31 @@ class TradingBotEngine:
 
                 qty = max(qty, 1)
 
-                # Place order
+                # Place bracket order (entry + SL + TP in one shot)
                 try:
-                    order_resp = self._broker.place_market_order(
+                    # We need an approximate price for SL/TP. Use a fresh quote if possible.
+                    approx_price = _estimate_price(self._broker, result.symbol, result.asset_class)
+
+                    if result.suggested_side == "buy":
+                        sl_price = round(approx_price * (1 - sl_pct), 4)
+                        tp_price = round(approx_price * (1 + tp_pct), 4)
+                    else:
+                        sl_price = round(approx_price * (1 + sl_pct), 4)
+                        tp_price = round(approx_price * (1 - tp_pct), 4)
+
+                    order_resp = self._broker.place_bracket_order(
                         symbol=result.symbol,
                         side=result.suggested_side,
                         qty=qty,
+                        take_profit_price=tp_price,
+                        stop_loss_price=sl_price,
                         asset_class=result.asset_class,
                     )
 
-                    fill_price = float(order_resp.get("filled_avg_price") or 0.0)
+                    fill_price = float(order_resp.get("filled_avg_price") or approx_price)
+                    order_id = order_resp.get("id", "unknown")
+
+                    # Record paper order for history endpoint
                     order_record = PaperOrder(
                         user_id=user.id,
                         symbol=result.symbol.upper(),
@@ -213,11 +238,31 @@ class TradingBotEngine:
                         status="filled",
                     )
                     db.add(order_record)
+
+                    # Record trade journal entry
+                    journal = TradeJournal(
+                        user_id=user.id,
+                        symbol=result.symbol.upper(),
+                        asset_class=result.asset_class,
+                        entry_order_id=str(order_id),
+                        entry_price=fill_price,
+                        quantity=float(qty),
+                        side=result.suggested_side,
+                        stop_loss_price=sl_price,
+                        take_profit_price=tp_price,
+                        entry_signal_rules=result.fired_timeframes,
+                        status="open",
+                        opened_at=datetime.now(UTC),
+                    )
+                    db.add(journal)
                     db.commit()
 
                     bot_state.record_trade()
                     summary["orders_placed"] += 1
-                    logger.info("Placed %s order for %s qty=%s", result.suggested_side, result.symbol, qty)
+                    logger.info(
+                        "Bracket order placed: %s %s qty=%s sl=%.4f tp=%.4f",
+                        result.suggested_side, result.symbol, qty, sl_price, tp_price,
+                    )
 
                 except Exception as exc:
                     logger.error("Failed to place order for %s: %s", result.symbol, exc)
@@ -239,3 +284,15 @@ class TradingBotEngine:
             return self.run_cycle(db)
         finally:
             db.close()
+
+
+def _estimate_price(broker, symbol: str, asset_class: AssetClass) -> float:
+    """Best-effort price estimate using positions or a fallback."""
+    try:
+        positions = broker.get_positions()
+        for pos in positions:
+            if pos.get("symbol", "").upper() == symbol.upper():
+                return float(pos.get("current_price") or pos.get("avg_entry_price") or 1.0)
+    except Exception:
+        pass
+    return 1.0

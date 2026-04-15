@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import Base, engine
 from app.routers import auth, health, markets, paper, risk, strategies
-from app.routers import broker, scanner, bot
+from app.routers import broker, scanner, bot, analytics
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -40,3 +40,4 @@ app.include_router(paper.router)
 app.include_router(broker.router)
 app.include_router(scanner.router)
 app.include_router(bot.router)
+app.include_router(analytics.router)

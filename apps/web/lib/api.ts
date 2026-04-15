@@ -142,3 +142,52 @@ export async function getPortfolioHistory(): Promise<PortfolioHistory> {
 export async function setKillSwitch(enabled: boolean): Promise<void> {
   await api.post("/risk/kill-switch/global", { enabled });
 }
+
+export interface TradeJournalEntry {
+  id: number;
+  symbol: string;
+  asset_class: string;
+  side: string;
+  entry_price: number;
+  exit_price: number | null;
+  quantity: number;
+  stop_loss_price: number;
+  take_profit_price: number;
+  entry_signal_rules: string[];
+  realized_pnl: number | null;
+  status: string;
+  opened_at: string;
+  closed_at: string | null;
+}
+
+export interface Performance {
+  win_rate: number;
+  sharpe: number;
+  max_drawdown: number;
+  avg_win: number;
+  avg_loss: number;
+  ratio: number;
+  total_trades: number;
+  open_trades: number;
+}
+
+export interface PnlPoint {
+  date: string;
+  pnl: number;
+  cumulative_pnl: number;
+}
+
+export async function getPerformance(): Promise<Performance> {
+  const res = await api.get("/analytics/performance");
+  return res.data;
+}
+
+export async function getTrades(status?: string, limit = 100): Promise<TradeJournalEntry[]> {
+  const res = await api.get("/analytics/trades", { params: { status, limit } });
+  return res.data;
+}
+
+export async function getPnlSeries(): Promise<PnlPoint[]> {
+  const res = await api.get("/analytics/pnl-series");
+  return res.data;
+}
