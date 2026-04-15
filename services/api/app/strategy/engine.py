@@ -78,12 +78,73 @@ def _evaluate_rule(candles: list[MarketCandle], rule: StrategyRule) -> bool:
         vol = _stddev_returns(candles[-lookback:])
         return vol <= max_volatility
 
+    if rule.rule_type == "gap_up":
+        min_gap_pct = float(rule.params.get("min_gap_pct", 0.02))
+        if len(candles) < 2:
+            return False
+        first_close = candles[0].close
+        if first_close == 0:
+            return False
+        gap = (latest.open - first_close) / first_close
+        return gap >= min_gap_pct
+
+    if rule.rule_type == "gap_down":
+        min_gap_pct = float(rule.params.get("min_gap_pct", 0.02))
+        if len(candles) < 2:
+            return False
+        first_close = candles[0].close
+        if first_close == 0:
+            return False
+        gap = (latest.open - first_close) / first_close
+        return gap <= -min_gap_pct
+
+    if rule.rule_type == "vwap_cross":
+        if len(candles) < 2:
+            return False
+        vwap = _vwap(candles)
+        prev_close = candles[-2].close
+        curr_close = candles[-1].close
+        return prev_close < vwap and curr_close > vwap
+
+    if rule.rule_type == "ema_cross":
+        fast = int(rule.params.get("fast", 9))
+        slow = int(rule.params.get("slow", 21))
+        if len(candles) < slow + 2:
+            return False
+        prev_fast = _ema(candles[:-1], fast)
+        prev_slow = _ema(candles[:-1], slow)
+        curr_fast = _ema(candles, fast)
+        curr_slow = _ema(candles, slow)
+        return prev_fast <= prev_slow and curr_fast > curr_slow
+
     return False
 
 
 def _sma(candles: list[MarketCandle], period: int) -> float:
     closes = [candle.close for candle in candles[-period:]]
     return sum(closes) / len(closes)
+
+
+def _ema(candles: list[MarketCandle], period: int) -> float:
+    closes = [candle.close for candle in candles]
+    if not closes:
+        return 0.0
+    smoothing = 2.0 / (period + 1)
+    ema = closes[0]
+    for price in closes[1:]:
+        ema = price * smoothing + ema * (1 - smoothing)
+    return ema
+
+
+def _vwap(candles: list[MarketCandle]) -> float:
+    total_volume = sum(candle.volume for candle in candles)
+    if total_volume == 0:
+        return 0.0
+    cumulative = sum(
+        ((candle.high + candle.low + candle.close) / 3) * candle.volume
+        for candle in candles
+    )
+    return cumulative / total_volume
 
 
 def _rsi(candles: list[MarketCandle], period: int) -> float | None:

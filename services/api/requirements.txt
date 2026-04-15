@@ -9,3 +9,8 @@ python-multipart==0.0.20
 email-validator==2.3.0
 pytest==8.4.2
 httpx==0.28.1
+alpaca-py==0.38.0
+websockets==15.0
+apscheduler==3.11.0
+pandas==2.2.3
+numpy==2.2.6
