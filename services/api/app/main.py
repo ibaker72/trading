@@ -6,6 +6,7 @@ from app.database import Base, engine
 from app.routers import auth, health, markets, paper, risk, strategies
 from app.routers import broker, scanner, bot, analytics, notifications as notifications_router
 from app.routers import ws as ws_router
+from app.routers import backtest as backtest_router
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -52,3 +53,4 @@ app.include_router(bot.router)
 app.include_router(analytics.router)
 app.include_router(notifications_router.router)
 app.include_router(ws_router.router)
+app.include_router(backtest_router.router)

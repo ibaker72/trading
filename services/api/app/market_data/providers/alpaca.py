@@ -179,6 +179,102 @@ class AlpacaMarketDataProvider(MarketDataProvider):
         return candles
 
     # ------------------------------------------------------------------
+    # Historical bars (date-range, used by backtesting)
+    # ------------------------------------------------------------------
+
+    def get_historical_bars(
+        self,
+        symbol: str,
+        asset_class: AssetClass,
+        start: "date",
+        end: "date",
+        timeframe: str = "1d",
+    ) -> list[MarketCandle]:
+        """
+        Fetch all bars between *start* and *end* (inclusive).
+        Handles Alpaca pagination automatically.
+        """
+        from datetime import date as _date  # avoid shadowing module-level name
+
+        alpaca_tf = _TIMEFRAME_MAP.get(timeframe, "1Day")
+        start_str = start.isoformat() if isinstance(start, _date) else str(start)
+        end_str = end.isoformat() if isinstance(end, _date) else str(end)
+
+        all_raw: list[dict] = []
+        page_token: str | None = None
+
+        with httpx.Client(timeout=30) as client:
+            while True:
+                if asset_class == "stock":
+                    params: dict = {
+                        "timeframe": alpaca_tf,
+                        "start": start_str,
+                        "end": end_str,
+                        "feed": self._feed,
+                        "adjustment": "raw",
+                        "limit": 1000,
+                    }
+                    if page_token:
+                        params["page_token"] = page_token
+                    resp = client.get(
+                        f"{self._data_url}/v2/stocks/{symbol}/bars",
+                        params=params,
+                        headers=self._headers,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    raw_bars = data.get("bars", []) or []
+                    next_token = data.get("next_page_token")
+                else:
+                    params = {
+                        "symbols": symbol,
+                        "timeframe": alpaca_tf,
+                        "start": start_str,
+                        "end": end_str,
+                        "limit": 1000,
+                    }
+                    if page_token:
+                        params["page_token"] = page_token
+                    resp = client.get(
+                        f"{self._data_url}/v1beta3/crypto/us/bars",
+                        params=params,
+                        headers=self._headers,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    bars_dict = data.get("bars", {}) or {}
+                    raw_bars = bars_dict.get(symbol, []) or []
+                    next_token = data.get("next_page_token")
+
+                all_raw.extend(raw_bars)
+                if not next_token:
+                    break
+                page_token = next_token
+
+        candles: list[MarketCandle] = []
+        for bar in all_raw:
+            try:
+                ts = datetime.fromisoformat(bar["t"].replace("Z", "+00:00"))
+            except (KeyError, ValueError):
+                continue
+            candles.append(
+                MarketCandle(
+                    symbol=symbol.upper(),
+                    asset_class=asset_class,
+                    timeframe=timeframe,
+                    timestamp=ts,
+                    open=float(bar.get("o", 0)),
+                    high=float(bar.get("h", 0)),
+                    low=float(bar.get("l", 0)),
+                    close=float(bar.get("c", 0)),
+                    volume=float(bar.get("v", 0)),
+                    provider=self.name,
+                )
+            )
+
+        return sorted(candles, key=lambda c: c.timestamp)
+
+    # ------------------------------------------------------------------
     # Batch quotes
     # ------------------------------------------------------------------
 
