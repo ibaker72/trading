@@ -30,6 +30,8 @@ import {
   getPortfolioHistory,
   getPerformance,
   getTrades,
+  getBacktestSymbols,
+  runBacktest,
   startBot,
   stopBot,
   pauseBot,
@@ -43,6 +45,7 @@ import {
   type Performance,
   type TradeJournalEntry,
   type MarketTick,
+  type BacktestResult,
 } from "@/lib/api";
 
 function StatusBadge({ status }: { status: string }) {
@@ -135,6 +138,17 @@ export default function Dashboard() {
   const wsRef = useRef<WebSocket | null>(null);
   const prevTradeIdsRef = useRef<Set<number>>(new Set());
 
+  // Backtest state
+  const [btSymbols, setBtSymbols] = useState<string[]>([]);
+  const [btSymbol, setBtSymbol] = useState("AAPL");
+  const [btStart, setBtStart] = useState("2024-01-01");
+  const [btEnd, setBtEnd] = useState("2024-12-31");
+  const [btSlPct, setBtSlPct] = useState(1.0);
+  const [btTpPct, setBtTpPct] = useState(2.0);
+  const [btResult, setBtResult] = useState<BacktestResult | null>(null);
+  const [btLoading, setBtLoading] = useState(false);
+  const [btError, setBtError] = useState<string | null>(null);
+
   const addToast = useCallback((msg: string, type: Toast["type"] = "info") => {
     const id = ++toastIdRef.current;
     setToasts((prev) => [...prev, { id, msg, type }]);
@@ -226,6 +240,39 @@ export default function Dashboard() {
     const id = setInterval(fetchAll, 30_000);
     return () => clearInterval(id);
   }, [fetchAll]);
+
+  // Load backtest symbols once on mount
+  useEffect(() => {
+    getBacktestSymbols()
+      .then((d) => {
+        setBtSymbols(d.all);
+        if (d.all.length > 0) setBtSymbol(d.all[0]);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleRunBacktest = useCallback(async () => {
+    setBtLoading(true);
+    setBtError(null);
+    setBtResult(null);
+    try {
+      const result = await runBacktest({
+        symbol: btSymbol,
+        start: btStart,
+        end: btEnd,
+        stop_loss_pct: btSlPct,
+        take_profit_pct: btTpPct,
+      });
+      setBtResult(result);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        String(err);
+      setBtError(msg);
+    } finally {
+      setBtLoading(false);
+    }
+  }, [btSymbol, btStart, btEnd, btSlPct, btTpPct]);
 
   const portfolioChartData = portfolio?.timestamp?.map((ts, i) => ({
     time: new Date(ts * 1000).toLocaleTimeString([], {
@@ -642,6 +689,236 @@ export default function Dashboard() {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* ── Backtest Panel ─────────────────────────────────────── */}
+      <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6">
+        <h2 className="text-xs text-gray-400 mb-4 font-bold tracking-wider">
+          STRATEGY BACKTEST
+        </h2>
+
+        {/* Controls */}
+        <div className="flex flex-wrap gap-3 mb-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-gray-500 text-xs">SYMBOL</label>
+            <select
+              value={btSymbol}
+              onChange={(e) => setBtSymbol(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+            >
+              {btSymbols.length > 0
+                ? btSymbols.map((s) => <option key={s}>{s}</option>)
+                : <option>{btSymbol}</option>}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-gray-500 text-xs">START</label>
+            <input
+              type="date"
+              value={btStart}
+              onChange={(e) => setBtStart(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-gray-500 text-xs">END</label>
+            <input
+              type="date"
+              value={btEnd}
+              onChange={(e) => setBtEnd(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-gray-500 text-xs">SL %</label>
+            <input
+              type="number"
+              min={0.1}
+              max={20}
+              step={0.1}
+              value={btSlPct}
+              onChange={(e) => setBtSlPct(parseFloat(e.target.value))}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white w-20"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-gray-500 text-xs">TP %</label>
+            <input
+              type="number"
+              min={0.1}
+              max={50}
+              step={0.1}
+              value={btTpPct}
+              onChange={(e) => setBtTpPct(parseFloat(e.target.value))}
+              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white w-20"
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              onClick={handleRunBacktest}
+              disabled={btLoading}
+              className="bg-blue-700 hover:bg-blue-600 disabled:bg-gray-700 px-4 py-1.5 rounded text-xs font-bold"
+            >
+              {btLoading ? "RUNNING…" : "RUN BACKTEST"}
+            </button>
+          </div>
+        </div>
+
+        {btError && (
+          <div className="flex items-center gap-2 text-red-400 text-xs bg-red-950 border border-red-800 rounded p-3 mb-4">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {btError}
+          </div>
+        )}
+
+        {btResult && (
+          <>
+            {/* Metrics row */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+              <MetricCard
+                label="TRADES"
+                value={btResult.metrics.total_trades}
+                sub={`${btResult.total_bars} bars`}
+              />
+              <MetricCard
+                label="WIN RATE"
+                value={`${(btResult.metrics.win_rate * 100).toFixed(1)}%`}
+              />
+              <MetricCard
+                label="TOTAL P&L"
+                value={
+                  btResult.metrics.total_pnl >= 0
+                    ? `+$${btResult.metrics.total_pnl.toFixed(2)}`
+                    : `-$${Math.abs(btResult.metrics.total_pnl).toFixed(2)}`
+                }
+                sub={`end equity $${btResult.metrics.ending_equity.toLocaleString()}`}
+              />
+              <MetricCard
+                label="SHARPE"
+                value={btResult.metrics.sharpe.toFixed(2)}
+              />
+              <MetricCard
+                label="MAX DRAWDOWN"
+                value={`${(btResult.metrics.max_drawdown * 100).toFixed(2)}%`}
+              />
+            </div>
+
+            {/* Equity curve */}
+            {btResult.equity_curve.length > 1 && (
+              <div className="mb-4">
+                <div className="text-xs text-gray-500 mb-2">EQUITY CURVE</div>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart
+                    data={btResult.equity_curve.map((eq, idx) => ({ idx, eq }))}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                    <XAxis dataKey="idx" hide />
+                    <YAxis
+                      tick={{ fill: "#6b7280", fontSize: 10 }}
+                      tickLine={false}
+                      width={70}
+                      tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#111827",
+                        border: "1px solid #374151",
+                        borderRadius: 4,
+                        fontSize: 11,
+                      }}
+                      formatter={(v: number) => [`$${v.toFixed(2)}`, "Equity"]}
+                      labelFormatter={() => ""}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="eq"
+                      stroke="#3b82f6"
+                      dot={false}
+                      strokeWidth={2}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Trades table */}
+            <div className="overflow-x-auto">
+              <div className="text-xs text-gray-500 mb-2">
+                SIMULATED TRADES ({btResult.trades.length})
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-500 border-b border-gray-800">
+                    <th className="text-left py-1 pr-3">ENTRY DATE</th>
+                    <th className="text-left py-1 pr-3">EXIT DATE</th>
+                    <th className="text-right py-1 pr-3">ENTRY</th>
+                    <th className="text-right py-1 pr-3">EXIT</th>
+                    <th className="text-right py-1 pr-3">QTY</th>
+                    <th className="text-right py-1 pr-3">P&L</th>
+                    <th className="text-left py-1 pr-3">STATUS</th>
+                    <th className="text-left py-1">RULES FIRED</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {btResult.trades.map((t, i) => {
+                    const statusColors: Record<string, string> = {
+                      took_profit: "text-green-400",
+                      stopped_out: "text-red-400",
+                      closed: "text-gray-400",
+                      open: "text-yellow-400",
+                    };
+                    const pnlColor =
+                      t.realized_pnl == null
+                        ? "text-gray-500"
+                        : t.realized_pnl >= 0
+                        ? "text-green-400"
+                        : "text-red-400";
+                    return (
+                      <tr key={i} className="border-b border-gray-800/50">
+                        <td className="py-1 pr-3 text-gray-300">{t.entry_date}</td>
+                        <td className="py-1 pr-3 text-gray-400">
+                          {t.exit_date ?? "—"}
+                        </td>
+                        <td className="py-1 pr-3 text-right">
+                          ${t.entry_price.toFixed(2)}
+                        </td>
+                        <td className="py-1 pr-3 text-right">
+                          {t.exit_price != null
+                            ? `$${t.exit_price.toFixed(2)}`
+                            : "—"}
+                        </td>
+                        <td className="py-1 pr-3 text-right text-gray-400">
+                          {t.quantity}
+                        </td>
+                        <td className={`py-1 pr-3 text-right font-bold ${pnlColor}`}>
+                          {t.realized_pnl != null
+                            ? `${t.realized_pnl >= 0 ? "+" : ""}$${t.realized_pnl.toFixed(2)}`
+                            : "—"}
+                        </td>
+                        <td
+                          className={`py-1 pr-3 ${statusColors[t.status] ?? "text-gray-400"}`}
+                        >
+                          {t.status.replace("_", " ").toUpperCase()}
+                        </td>
+                        <td className="py-1 text-gray-600 text-xs">
+                          {t.fired_rules.join(", ") || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {btResult.trades.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-4 text-center text-gray-600">
+                        No signals fired in this date range. Try a wider range or
+                        lower min_signal_score.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

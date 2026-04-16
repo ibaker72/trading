@@ -203,3 +203,69 @@ export async function getPnlSeries(): Promise<PnlPoint[]> {
   const res = await api.get("/analytics/pnl-series");
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// Backtest
+// ---------------------------------------------------------------------------
+
+export interface BacktestTrade {
+  entry_date: string;
+  exit_date: string | null;
+  entry_price: number;
+  exit_price: number | null;
+  side: string;
+  quantity: number;
+  stop_loss_price: number;
+  take_profit_price: number;
+  realized_pnl: number | null;
+  status: string;
+  fired_rules: string[];
+}
+
+export interface BacktestMetrics {
+  total_trades: number;
+  win_rate: number;
+  sharpe: number;
+  max_drawdown: number;
+  avg_win: number;
+  avg_loss: number;
+  ratio: number;
+  total_pnl: number;
+  starting_equity: number;
+  ending_equity: number;
+}
+
+export interface BacktestResult {
+  symbol: string;
+  asset_class: string;
+  start: string;
+  end: string;
+  timeframe: string;
+  total_bars: number;
+  trades: BacktestTrade[];
+  metrics: BacktestMetrics;
+  equity_curve: number[];
+}
+
+export interface BacktestRequest {
+  symbol: string;
+  asset_class?: string;
+  start: string;
+  end: string;
+  timeframe?: string;
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+  starting_equity?: number;
+  position_size_pct?: number;
+  min_signal_score?: number;
+}
+
+export async function runBacktest(req: BacktestRequest): Promise<BacktestResult> {
+  const res = await api.post("/backtest/run", req);
+  return res.data;
+}
+
+export async function getBacktestSymbols(): Promise<{ stocks: string[]; crypto: string[]; all: string[] }> {
+  const res = await api.get("/backtest/symbols");
+  return res.data;
+}
