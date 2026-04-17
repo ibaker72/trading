@@ -34,7 +34,7 @@ class TradingBotEngine:
     def _init_components(self) -> None:
         from app.strategy.scanner import WatchlistScanner
 
-        if self._settings.alpaca_api_key:
+        if self._settings.alpaca_enabled:
             try:
                 from app.broker.alpaca import AlpacaBroker
                 from app.market_data.providers.alpaca import AlpacaMarketDataProvider
@@ -55,7 +55,7 @@ class TradingBotEngine:
                 from app.market_data.providers.mock import MockMarketDataProvider
                 provider = MockMarketDataProvider()
         else:
-            logger.warning("ALPACA_API_KEY not set — running in mock mode, orders will not be placed")
+            logger.warning("Alpaca disabled — running in mock mode, orders will not be placed")
             from app.market_data.providers.mock import MockMarketDataProvider
             provider = MockMarketDataProvider()
 

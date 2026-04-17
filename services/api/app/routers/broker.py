@@ -10,7 +10,7 @@ router = APIRouter(prefix="/broker", tags=["broker"])
 
 def _get_broker() -> AlpacaBroker:
     settings = get_settings()
-    if not settings.alpaca_api_key:
+    if not settings.alpaca_enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Alpaca not configured",

@@ -93,7 +93,7 @@ def get_summary() -> dict:
     settings = get_settings()
 
     equity = None
-    if settings.alpaca_api_key:
+    if settings.alpaca_enabled:
         try:
             from app.broker.alpaca import AlpacaBroker
             broker = AlpacaBroker(

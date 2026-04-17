@@ -67,4 +67,9 @@ pytest -q
 ## Docker compose
 ```bash
 docker compose up --build
+docker compose watch
 ```
+
+`docker compose watch` is configured for the `api`, `web`, `worker`, and `scheduler` services.
+Python service code changes are synced into the container and the service restarts automatically.
+Frontend changes trigger a rebuild of the `web` image because that container currently runs the production Next.js server.

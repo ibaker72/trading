@@ -43,6 +43,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @property
+    def alpaca_enabled(self) -> bool:
+        if self.demo_mode:
+            return False
+
+        key = self.alpaca_api_key.strip()
+        secret = self.alpaca_secret_key.strip()
+        placeholder_values = {"", "your_api_key_here", "your_secret_key_here"}
+        return key not in placeholder_values and secret not in placeholder_values
+
 
 @lru_cache
 def get_settings() -> Settings:

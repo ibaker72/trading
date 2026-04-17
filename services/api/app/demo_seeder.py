@@ -25,10 +25,43 @@ def seed_initial_watchlist(db: Session) -> None:
 
 def seed_demo_data(db: Session) -> None:
     """Seeds 19 realistic demo trades when DEMO_MODE=true. Idempotent."""
-    from app.models import TradeJournal
+    from app.models import PaperAccount, RiskPolicy, TradeJournal, User
+    from app.security import get_password_hash
 
     if db.query(TradeJournal).count() > 0:
         return
+
+    user = db.query(User).filter(User.id == 1).first()
+    if user is None:
+        user = User(
+            id=1,
+            email="bot@trading.local",
+            full_name="Trading Bot",
+            password_hash=get_password_hash("demo-mode-password"),
+            role="trader",
+        )
+        db.add(user)
+        db.flush()
+
+    policy = db.query(RiskPolicy).filter(RiskPolicy.user_id == user.id).first()
+    if policy is None:
+        db.add(
+            RiskPolicy(
+                user_id=user.id,
+                max_risk_per_trade_pct=1.0,
+                max_daily_loss=500.0,
+                max_open_positions=10,
+                consecutive_loss_limit=3,
+                allowed_symbols=[],
+                live_trading_enabled=True,
+            )
+        )
+
+    account = db.query(PaperAccount).filter(PaperAccount.user_id == user.id).first()
+    if account is None:
+        db.add(PaperAccount(user_id=user.id, cash_balance=100000.0, equity=100000.0))
+
+    db.flush()
 
     now = datetime.utcnow()
     trades = [
@@ -57,7 +90,7 @@ def seed_demo_data(db: Session) -> None:
         pnl = (t["exit_price"] - t["entry_price"]) * t["qty"]
         db.add(
             TradeJournal(
-                user_id=1,
+                user_id=user.id,
                 symbol=t["symbol"],
                 asset_class=t.get("asset_class", "stock"),
                 entry_order_id=f"demo-entry-{idx}",

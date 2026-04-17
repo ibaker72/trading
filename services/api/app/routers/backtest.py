@@ -19,7 +19,7 @@ router = APIRouter(prefix="/backtest", tags=["backtest"])
 def _get_provider():
     """Return an AlpacaMarketDataProvider, or raise 503 if not configured."""
     settings = get_settings()
-    if not settings.alpaca_api_key:
+    if not settings.alpaca_enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Alpaca API key not configured — backtesting requires live market data.",

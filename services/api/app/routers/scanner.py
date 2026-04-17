@@ -21,7 +21,7 @@ _DEFAULT_RULES: list[StrategyRule] = [
 
 def _get_scanner() -> WatchlistScanner:
     settings = get_settings()
-    if settings.alpaca_api_key:
+    if settings.alpaca_enabled:
         try:
             from app.market_data.providers.alpaca import AlpacaMarketDataProvider
             provider = AlpacaMarketDataProvider(

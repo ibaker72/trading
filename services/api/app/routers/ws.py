@@ -29,7 +29,7 @@ async def _ensure_stream_running() -> None:
     if _stream_running:
         return
     settings = get_settings()
-    if not settings.alpaca_api_key:
+    if not settings.alpaca_enabled:
         return  # no Alpaca — mock mode only
 
     stocks = [s.strip() for s in settings.watchlist_stocks.split(",") if s.strip()]
@@ -73,7 +73,7 @@ async def market_websocket(websocket: WebSocket) -> None:
     register_queue(queue)
 
     mock_task = None
-    if not settings.alpaca_api_key:
+    if not settings.alpaca_enabled:
         # Start mock tick loop for this client
         mock_task = asyncio.create_task(_mock_tick_loop(queue))
     else:
@@ -99,7 +99,7 @@ async def market_websocket(websocket: WebSocket) -> None:
 def ws_status() -> dict:
     settings = get_settings()
     return {
-        "alpaca_configured": bool(settings.alpaca_api_key),
+        "alpaca_configured": settings.alpaca_enabled,
         "stream_running": _stream_running,
         "connected_clients": len(
             __import__("app.market_data.stream", fromlist=["_queues"])._queues
