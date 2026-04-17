@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     notify_smtp_user: str = ""
     notify_smtp_password: str = ""
     notify_smtp_tls: bool = True
+    cors_origins: str = "*"
 
     model_config = SettingsConfigDict(
         env_file=".env",

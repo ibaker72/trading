@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import {
   LineChart,
   Line,
@@ -394,7 +395,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6 border-b border-gray-800 pb-4">
+      <div className="mb-6 flex flex-col gap-3 border-b border-gray-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Activity className="w-6 h-6 text-green-400" />
           <h1 className="text-xl font-bold tracking-wider text-white">TRADING BOT</h1>
@@ -410,9 +411,15 @@ export default function Dashboard() {
             {wsConnected ? "LIVE" : "OFFLINE"}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-gray-400 mr-4 cursor-pointer">
-            <span>KILL SWITCH</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/settings"
+            className="rounded border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs font-bold text-white hover:border-gray-600"
+          >
+            SETTINGS
+          </Link>
+          <label className="mr-2 flex items-center gap-2 cursor-pointer text-xs text-gray-400 sm:mr-4">
+            <span className="hidden sm:inline">KILL SWITCH</span>
             <input
               type="checkbox"
               checked={killSwitch}
@@ -600,10 +607,10 @@ export default function Dashboard() {
           <thead>
             <tr className="text-gray-500 border-b border-gray-800">
               <th className="text-left py-1 pr-4">SYMBOL</th>
-              <th className="text-left py-1 pr-4">CLASS</th>
+              <th className="hidden py-1 pr-4 text-left sm:table-cell">CLASS</th>
               <th className="text-right py-1 pr-4">LIVE</th>
               <th className="text-right py-1 pr-4">SCORE</th>
-              <th className="text-left py-1 pr-4">TIMEFRAMES</th>
+              <th className="hidden py-1 pr-4 text-left sm:table-cell">TIMEFRAMES</th>
               <th className="text-left py-1 pr-4">SIDE</th>
               <th className="text-center py-1">TRADE?</th>
             </tr>
@@ -615,7 +622,7 @@ export default function Dashboard() {
                 className={`border-b border-gray-800/50 ${r.should_trade ? "bg-green-950/30" : ""}`}
               >
                 <td className="py-1.5 pr-4 font-bold text-white">{r.symbol}</td>
-                <td className="py-1.5 pr-4 text-gray-400">{r.asset_class}</td>
+                <td className="hidden py-1.5 pr-4 text-gray-400 sm:table-cell">{r.asset_class}</td>
                 <td className="py-1.5 pr-4 text-right font-mono text-cyan-400">
                   {livePrices[r.symbol] != null ? `$${livePrices[r.symbol].toFixed(2)}` : <span className="text-gray-700">—</span>}
                 </td>
@@ -624,7 +631,7 @@ export default function Dashboard() {
                     {(r.aggregate_score * 100).toFixed(0)}%
                   </span>
                 </td>
-                <td className="py-1.5 pr-4 text-gray-400">{r.fired_timeframes.join(", ") || "—"}</td>
+                <td className="hidden py-1.5 pr-4 text-gray-400 sm:table-cell">{r.fired_timeframes.join(", ") || "—"}</td>
                 <td className="py-1.5 pr-4">
                   <SideIcon side={r.suggested_side} />
                   <span
@@ -790,20 +797,21 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6 overflow-x-auto">
+      <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6">
         <h2 className="text-xs text-gray-400 mb-3 font-bold tracking-wider">TRADE JOURNAL</h2>
-        <table className="w-full text-xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
           <thead>
             <tr className="text-gray-500 border-b border-gray-800">
               <th className="text-left py-1 pr-3">SYMBOL</th>
               <th className="text-left py-1 pr-3">SIDE</th>
               <th className="text-right py-1 pr-3">ENTRY</th>
               <th className="text-right py-1 pr-3">EXIT</th>
-              <th className="text-right py-1 pr-3">SL</th>
-              <th className="text-right py-1 pr-3">TP</th>
+              <th className="hidden py-1 pr-3 text-right sm:table-cell">SL</th>
+              <th className="hidden py-1 pr-3 text-right sm:table-cell">TP</th>
               <th className="text-right py-1 pr-3">P&amp;L</th>
               <th className="text-left py-1 pr-3">STATUS</th>
-              <th className="text-left py-1">OPENED</th>
+              <th className="hidden py-1 text-left sm:table-cell">OPENED</th>
             </tr>
           </thead>
           <tbody>
@@ -823,15 +831,15 @@ export default function Dashboard() {
                   </td>
                   <td className="py-1.5 pr-3 text-right text-gray-300">${t.entry_price.toFixed(4)}</td>
                   <td className="py-1.5 pr-3 text-right text-gray-300">{t.exit_price != null ? `$${t.exit_price.toFixed(4)}` : "—"}</td>
-                  <td className="py-1.5 pr-3 text-right text-red-400/70">${t.stop_loss_price.toFixed(4)}</td>
-                  <td className="py-1.5 pr-3 text-right text-green-400/70">${t.take_profit_price.toFixed(4)}</td>
+                  <td className="hidden py-1.5 pr-3 text-right text-red-400/70 sm:table-cell">${t.stop_loss_price.toFixed(4)}</td>
+                  <td className="hidden py-1.5 pr-3 text-right text-green-400/70 sm:table-cell">${t.take_profit_price.toFixed(4)}</td>
                   <td className={`py-1.5 pr-3 text-right font-bold ${pnlColor}`}>
                     {t.realized_pnl != null ? `${t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}` : "—"}
                   </td>
                   <td className={`py-1.5 pr-3 ${statusColors[t.status] ?? "text-gray-400"}`}>
                     {t.status.replace("_", " ").toUpperCase()}
                   </td>
-                  <td className="py-1.5 text-gray-500">{new Date(t.opened_at).toLocaleTimeString()}</td>
+                  <td className="hidden py-1.5 text-gray-500 sm:table-cell">{new Date(t.opened_at).toLocaleTimeString()}</td>
                 </tr>
               );
             })}
@@ -843,7 +851,8 @@ export default function Dashboard() {
               </tr>
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6">

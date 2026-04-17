@@ -5,8 +5,35 @@ const BASE_URL =
 
 export const WS_BASE_URL = BASE_URL.replace(/^http/, "ws");
 
+
 const api = axios.create({ baseURL: BASE_URL });
 
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = window.localStorage.getItem("auth_token");
+    if (token) {
+      config.headers = config.headers ?? {};
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401 && typeof window !== "undefined") {
+      window.localStorage.removeItem("auth_token");
+      document.cookie = "auth_token=; path=/; max-age=0; SameSite=Lax";
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export { api };
 
 export interface WatchlistEntry {
   id: number;
@@ -306,4 +333,71 @@ export async function getBacktestSymbols(): Promise<{ stocks: string[]; crypto: 
     return { stocks: data, crypto: [], all: data };
   }
   return data;
+}
+
+
+export interface RiskPolicy {
+  id?: number;
+  user_id: number;
+  max_risk_per_trade_pct: number;
+  max_daily_loss: number;
+  max_open_positions: number;
+  consecutive_loss_limit: number;
+  allowed_symbols: string[];
+  live_trading_enabled: boolean;
+  is_kill_switch_on?: boolean;
+  created_at?: string;
+}
+
+export interface NotificationConfig {
+  id?: number;
+  webhook_url: string;
+  email_to: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_password?: string;
+  smtp_tls: boolean;
+  notify_on_trade: boolean;
+  notify_on_error: boolean;
+  notify_on_kill_switch: boolean;
+  notify_on_daily_summary: boolean;
+  is_active: boolean;
+}
+
+export async function getRiskPolicy(userId: number): Promise<RiskPolicy | null> {
+  try {
+    const res = await api.get<RiskPolicy>(`/risk/policies/${userId}`);
+    return res.data;
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function upsertRiskPolicy(payload: RiskPolicy): Promise<RiskPolicy> {
+  const res = await api.post<RiskPolicy>("/risk/policies", payload);
+  return res.data;
+}
+
+export async function getNotificationConfig(): Promise<NotificationConfig | null> {
+  const res = await api.get<NotificationConfig | null>("/notifications/config");
+  if (res.data == null) {
+    return null;
+  }
+  return res.data;
+}
+
+export async function upsertNotificationConfig(
+  payload: NotificationConfig,
+): Promise<NotificationConfig> {
+  const res = await api.post<NotificationConfig>("/notifications/config", payload);
+  return res.data;
+}
+
+export async function testNotification(): Promise<{ status?: string; detail?: string }> {
+  const res = await api.post<{ status?: string; detail?: string }>("/notifications/test");
+  return res.data;
 }
