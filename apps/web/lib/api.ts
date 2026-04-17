@@ -21,16 +21,7 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error?.response?.status === 401 && typeof window !== "undefined") {
-      window.localStorage.removeItem("auth_token");
-      document.cookie = "auth_token=; path=/; max-age=0; SameSite=Lax";
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
-      }
-    }
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 export { api };

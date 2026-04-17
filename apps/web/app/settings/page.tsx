@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import {
   getNotificationConfig,
@@ -41,7 +40,6 @@ const defaultNotifications: NotificationConfig = {
 };
 
 export default function SettingsPage() {
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("risk");
   const [user, setUser] = useState<User | null>(null);
   const [risk, setRisk] = useState<RiskPolicy>(defaultRisk);
@@ -87,21 +85,19 @@ export default function SettingsPage() {
         }
       } catch {
         clearToken();
-        router.push("/login");
       } finally {
         if (active) setLoading(false);
       }
     })().catch(() => {
       if (!active) return;
       clearToken();
-      router.push("/login");
       setLoading(false);
     });
 
     return () => {
       active = false;
     };
-  }, [router]);
+  }, []);
 
   async function saveRisk(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -151,7 +147,7 @@ export default function SettingsPage() {
 
   function signOut() {
     clearToken();
-    router.push("/login");
+    setUser(null);
   }
 
   return (

@@ -15,16 +15,19 @@ export default function LandingPage() {
           Automated signals for stocks and crypto. Walk-forward backtested rules, real-time execution,
           and risk controls that protect your capital.
         </p>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap justify-center gap-4">
           <Link
             href="/"
             className="rounded-lg bg-green-500 px-6 py-3 font-bold text-black hover:bg-green-400"
           >
             Launch Dashboard →
           </Link>
-          <button className="rounded-lg border border-gray-700 px-6 py-3 font-bold text-gray-300 hover:border-gray-500 hover:text-white">
-            Watch Demo
-          </button>
+          <Link
+            href="/register"
+            className="rounded-lg border border-gray-700 px-6 py-3 font-bold text-gray-300 hover:border-gray-500 hover:text-white"
+          >
+            Create Account
+          </Link>
         </div>
       </section>
 
