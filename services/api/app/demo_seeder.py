@@ -1,109 +1,78 @@
-"""Seeds the database with realistic demo data for pitch demonstrations."""
-
-import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import BotSession, TradeJournal, WatchlistItem
 
+def seed_initial_watchlist(db: Session) -> None:
+    """Populates watchlist from env vars on first boot if table is empty."""
+    from app.config import get_settings
+    from app.models import WatchlistItem
 
-_DEMO_STOCKS = ["AAPL", "NVDA", "TSLA", "SPY", "QQQ", "MSFT", "AMD"]
-_DEMO_CRYPTO = ["BTC/USD", "ETH/USD", "SOL/USD", "ADA/USD", "AVAX/USD", "DOGE/USD"]
+    if db.query(WatchlistItem).count() > 0:
+        return
 
-_DEMO_TRADES = [
-    # Profitable trades (winning ~65%)
-    ("NVDA", "stock", 487.50, 497.25, 482.80, 499.75, "took_profit", 0.97),
-    ("BTC/USD", "crypto", 43250.0, 44100.0, 42800.0, 44500.0, "took_profit", 0.83),
-    ("AAPL", "stock", 189.20, 191.85, 187.50, 193.00, "took_profit", 1.10),
-    ("ETH/USD", "crypto", 2310.0, 2356.2, 2287.0, 2380.0, "took_profit", 0.92),
-    ("TSLA", "stock", 248.60, 253.55, 246.00, 256.00, "took_profit", 1.23),
-    ("SPY", "stock", 471.30, 474.01, 469.10, 475.80, "took_profit", 0.57),
-    ("NVDA", "stock", 501.10, 511.12, 496.00, 516.00, "took_profit", 2.00),
-    ("BTC/USD", "crypto", 44800.0, 45700.0, 44300.0, 46000.0, "took_profit", 2.01),
-    ("SOL/USD", "crypto", 98.50, 100.48, 97.50, 101.50, "took_profit", 0.98),
-    ("AMD", "stock", 162.40, 165.65, 160.50, 167.00, "took_profit", 1.62),
-    ("AAPL", "stock", 192.10, 194.88, 190.00, 196.00, "took_profit", 1.37),
-    ("ETH/USD", "crypto", 2380.0, 2427.6, 2355.0, 2440.0, "took_profit", 1.18),
-    ("QQQ", "stock", 399.80, 403.00, 397.50, 404.80, "took_profit", 0.80),
-    # Losing trades (~35%)
-    ("TSLA", "stock", 251.30, None, 247.80, 258.00, "stopped_out", -0.76),
-    ("BTC/USD", "crypto", 45200.0, None, 44700.0, 46600.0, "stopped_out", -1.10),
-    ("AMD", "stock", 166.20, None, 164.50, 170.80, "stopped_out", -0.84),
-    ("ETH/USD", "crypto", 2450.0, None, 2425.5, 2523.5, "stopped_out", -0.60),
-    ("NVDA", "stock", 512.00, None, 506.88, 527.36, "stopped_out", -1.28),
-    ("SOL/USD", "crypto", 102.10, None, 101.07, 105.16, "stopped_out", -0.50),
-]
-
-
-def _random_past_dt(days_ago_max: int = 30, days_ago_min: int = 1) -> datetime:
-    offset = random.uniform(days_ago_min, days_ago_max)
-    return datetime.now(timezone.utc) - timedelta(days=offset, hours=random.uniform(0, 8))
-
-
-def seed_demo_data(db: Session) -> None:
-    """Seeds demo trades, watchlist, and bot session if DB looks empty."""
-    existing_count = db.query(TradeJournal).count()
-    if existing_count >= 5:
-        return  # already seeded or real data present
-
-    rng = random.Random(42)
-
-    for i, (symbol, asset_class, entry_px, exit_px_raw, sl, tp, st, qty_mult) in enumerate(_DEMO_TRADES):
-        opened = _random_past_dt(days_ago_max=28, days_ago_min=i * 1.5 + 1)
-        closed = opened + timedelta(hours=rng.uniform(1, 24)) if st != "open" else None
-
-        if st == "took_profit":
-            actual_exit = tp
-            pnl = round((actual_exit - entry_px) * qty_mult * 10, 2)
-        elif st == "stopped_out":
-            actual_exit = sl
-            pnl = round((actual_exit - entry_px) * qty_mult * 10, 2)
-        else:
-            actual_exit = None
-            pnl = None
-
-        trade = TradeJournal(
-            user_id=1,
-            symbol=symbol,
-            asset_class=asset_class,
-            entry_order_id=f"demo-entry-{i:04d}",
-            exit_order_id=f"demo-exit-{i:04d}" if st != "open" else None,
-            entry_price=entry_px,
-            exit_price=actual_exit,
-            quantity=round(qty_mult * 10, 4),
-            side="buy",
-            stop_loss_price=sl,
-            take_profit_price=tp,
-            entry_signal_rules=["ema_cross", "vwap_cross"] if rng.random() > 0.4 else ["rsi_threshold", "volume_spike"],
-            realized_pnl=pnl,
-            status=st,
-            opened_at=opened,
-            closed_at=closed,
-        )
-        db.add(trade)
-
-    _seed_watchlist(db)
-    _ensure_bot_session(db)
+    settings = get_settings()
+    for sym in settings.watchlist_stocks.split(","):
+        sym = sym.strip()
+        if sym:
+            db.add(WatchlistItem(symbol=sym, asset_class="stock", is_active=True))
+    for sym in settings.watchlist_crypto.split(","):
+        sym = sym.strip()
+        if sym:
+            db.add(WatchlistItem(symbol=sym, asset_class="crypto", is_active=True))
     db.commit()
 
 
-def _seed_watchlist(db: Session) -> None:
-    if db.query(WatchlistItem).count() > 0:
+def seed_demo_data(db: Session) -> None:
+    """Seeds 19 realistic demo trades when DEMO_MODE=true. Idempotent."""
+    from app.models import TradeJournal
+
+    if db.query(TradeJournal).count() > 0:
         return
-    for sym in _DEMO_STOCKS:
-        db.add(WatchlistItem(symbol=sym, asset_class="stock", is_active=True))
-    for sym in _DEMO_CRYPTO:
-        db.add(WatchlistItem(symbol=sym, asset_class="crypto", is_active=True))
 
+    now = datetime.utcnow()
+    trades = [
+        dict(symbol="AAPL", asset_class="stock", side="buy", entry_price=182.50, exit_price=185.90, qty=10, stop_loss=180.50, take_profit=186.50, status="took_profit", opened_at=now - timedelta(days=14), closed_at=now - timedelta(days=13)),
+        dict(symbol="NVDA", asset_class="stock", side="buy", entry_price=465.00, exit_price=480.20, qty=5, stop_loss=455.00, take_profit=485.00, status="took_profit", opened_at=now - timedelta(days=13), closed_at=now - timedelta(days=12)),
+        dict(symbol="TSLA", asset_class="stock", side="buy", entry_price=248.00, exit_price=243.50, qty=8, stop_loss=243.00, take_profit=258.00, status="stopped_out", opened_at=now - timedelta(days=12), closed_at=now - timedelta(days=12)),
+        dict(symbol="SPY", asset_class="stock", side="buy", entry_price=447.80, exit_price=451.20, qty=15, stop_loss=443.00, take_profit=455.00, status="took_profit", opened_at=now - timedelta(days=11), closed_at=now - timedelta(days=10)),
+        dict(symbol="QQQ", asset_class="stock", side="buy", entry_price=378.50, exit_price=373.80, qty=10, stop_loss=373.00, take_profit=388.00, status="stopped_out", opened_at=now - timedelta(days=10), closed_at=now - timedelta(days=10)),
+        dict(symbol="AAPL", asset_class="stock", side="buy", entry_price=183.20, exit_price=187.60, qty=12, stop_loss=181.00, take_profit=188.00, status="took_profit", opened_at=now - timedelta(days=9), closed_at=now - timedelta(days=8)),
+        dict(symbol="NVDA", asset_class="stock", side="buy", entry_price=471.00, exit_price=488.50, qty=4, stop_loss=461.00, take_profit=491.00, status="took_profit", opened_at=now - timedelta(days=8), closed_at=now - timedelta(days=7)),
+        dict(symbol="TSLA", asset_class="stock", side="buy", entry_price=252.50, exit_price=261.80, qty=7, stop_loss=247.00, take_profit=263.00, status="took_profit", opened_at=now - timedelta(days=7), closed_at=now - timedelta(days=6)),
+        dict(symbol="SPY", asset_class="stock", side="buy", entry_price=449.20, exit_price=444.50, qty=20, stop_loss=444.00, take_profit=458.00, status="stopped_out", opened_at=now - timedelta(days=6), closed_at=now - timedelta(days=6)),
+        dict(symbol="QQQ", asset_class="stock", side="buy", entry_price=381.00, exit_price=389.40, qty=8, stop_loss=375.00, take_profit=391.00, status="took_profit", opened_at=now - timedelta(days=5), closed_at=now - timedelta(days=4)),
+        dict(symbol="AAPL", asset_class="stock", side="buy", entry_price=186.40, exit_price=191.20, qty=10, stop_loss=184.00, take_profit=192.00, status="took_profit", opened_at=now - timedelta(days=4), closed_at=now - timedelta(days=3)),
+        dict(symbol="NVDA", asset_class="stock", side="buy", entry_price=479.50, exit_price=474.00, qty=3, stop_loss=469.00, take_profit=499.00, status="stopped_out", opened_at=now - timedelta(days=3), closed_at=now - timedelta(days=3)),
+        dict(symbol="BTC/USD", asset_class="crypto", side="buy", entry_price=42800.00, exit_price=44100.00, qty=0.1, stop_loss=42000.00, take_profit=45000.00, status="took_profit", opened_at=now - timedelta(days=13), closed_at=now - timedelta(days=12)),
+        dict(symbol="ETH/USD", asset_class="crypto", side="buy", entry_price=2280.00, exit_price=2195.00, qty=0.8, stop_loss=2200.00, take_profit=2400.00, status="stopped_out", opened_at=now - timedelta(days=12), closed_at=now - timedelta(days=12)),
+        dict(symbol="BTC/USD", asset_class="crypto", side="buy", entry_price=43500.00, exit_price=45200.00, qty=0.15, stop_loss=42700.00, take_profit=46000.00, status="took_profit", opened_at=now - timedelta(days=10), closed_at=now - timedelta(days=9)),
+        dict(symbol="ETH/USD", asset_class="crypto", side="buy", entry_price=2310.00, exit_price=2390.00, qty=1.0, stop_loss=2250.00, take_profit=2420.00, status="took_profit", opened_at=now - timedelta(days=8), closed_at=now - timedelta(days=7)),
+        dict(symbol="BTC/USD", asset_class="crypto", side="buy", entry_price=44100.00, exit_price=43250.00, qty=0.1, stop_loss=43200.00, take_profit=46000.00, status="stopped_out", opened_at=now - timedelta(days=6), closed_at=now - timedelta(days=6)),
+        dict(symbol="ETH/USD", asset_class="crypto", side="buy", entry_price=2355.00, exit_price=2440.00, qty=0.5, stop_loss=2300.00, take_profit=2460.00, status="took_profit", opened_at=now - timedelta(days=4), closed_at=now - timedelta(days=3)),
+        dict(symbol="BTC/USD", asset_class="crypto", side="buy", entry_price=44800.00, exit_price=46100.00, qty=0.2, stop_loss=44000.00, take_profit=47000.00, status="took_profit", opened_at=now - timedelta(days=2), closed_at=now - timedelta(days=1)),
+    ]
 
-def _ensure_bot_session(db: Session) -> None:
-    session = db.query(BotSession).filter(BotSession.id == 1).first()
-    if not session:
-        session = BotSession(
-            id=1,
-            status="STOPPED",
-            trades_today=3,
-            errors_today=0,
+    for idx, t in enumerate(trades, start=1):
+        pnl = (t["exit_price"] - t["entry_price"]) * t["qty"]
+        db.add(
+            TradeJournal(
+                user_id=1,
+                symbol=t["symbol"],
+                asset_class=t.get("asset_class", "stock"),
+                entry_order_id=f"demo-entry-{idx}",
+                exit_order_id=f"demo-exit-{idx}",
+                side=t["side"],
+                entry_price=t["entry_price"],
+                exit_price=t["exit_price"],
+                quantity=t["qty"],
+                stop_loss_price=t["stop_loss"],
+                take_profit_price=t["take_profit"],
+                entry_signal_rules=["demo_seed"],
+                realized_pnl=round(pnl, 2),
+                status=t["status"],
+                opened_at=t["opened_at"],
+                closed_at=t["closed_at"],
+            )
         )
-        db.add(session)
+    db.commit()

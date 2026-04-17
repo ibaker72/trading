@@ -7,6 +7,40 @@ export const WS_BASE_URL = BASE_URL.replace(/^http/, "ws");
 
 const api = axios.create({ baseURL: BASE_URL });
 
+
+export interface WatchlistEntry {
+  id: number;
+  symbol: string;
+  asset_class: "stock" | "crypto";
+  is_active: boolean;
+  added_at: string;
+}
+
+export async function getWatchlist(): Promise<WatchlistEntry[]> {
+  const res = await api.get<WatchlistEntry[]>("/watchlist");
+  return res.data;
+}
+
+export async function addWatchlistSymbol(
+  symbol: string,
+  asset_class: "stock" | "crypto"
+): Promise<WatchlistEntry> {
+  const res = await api.post<WatchlistEntry>("/watchlist", { symbol, asset_class });
+  return res.data;
+}
+
+export async function removeWatchlistSymbol(
+  symbol: string,
+  asset_class: "stock" | "crypto" = "stock"
+): Promise<void> {
+  await api.delete(`/watchlist/${symbol}?asset_class=${asset_class}`);
+}
+
+export async function getAppConfig(): Promise<{ demo_mode: boolean }> {
+  const res = await api.get<{ demo_mode: boolean }>("/health/config");
+  return res.data;
+}
+
 export interface MarketTick {
   type: "tick" | "ping";
   symbol?: string;
@@ -267,40 +301,9 @@ export async function runBacktest(req: BacktestRequest): Promise<BacktestResult>
 
 export async function getBacktestSymbols(): Promise<{ stocks: string[]; crypto: string[]; all: string[] }> {
   const res = await api.get("/backtest/symbols");
-  return res.data;
-}
-
-// ---------------------------------------------------------------------------
-// Watchlist
-// ---------------------------------------------------------------------------
-
-export interface WatchlistEntry {
-  id: number;
-  symbol: string;
-  asset_class: string;
-  is_active: boolean;
-  added_at: string;
-}
-
-export async function getWatchlist(): Promise<WatchlistEntry[]> {
-  const res = await api.get("/watchlist");
-  return res.data;
-}
-
-export async function addWatchlistSymbol(symbol: string, asset_class: string): Promise<WatchlistEntry> {
-  const res = await api.post("/watchlist", { symbol, asset_class });
-  return res.data;
-}
-
-export async function removeWatchlistSymbol(symbol: string): Promise<void> {
-  await api.delete(`/watchlist/${symbol}`);
-}
-
-// ---------------------------------------------------------------------------
-// App config
-// ---------------------------------------------------------------------------
-
-export async function getAppConfig(): Promise<{ demo_mode: boolean }> {
-  const res = await api.get("/health/config");
-  return res.data;
+  const data = res.data;
+  if (Array.isArray(data)) {
+    return { stocks: data, crypto: [], all: data };
+  }
+  return data;
 }

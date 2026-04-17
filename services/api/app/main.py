@@ -26,14 +26,17 @@ def startup() -> None:
     Base.metadata.create_all(bind=engine)
     from app.database import SessionLocal
     from app.bot.state import rehydrate
+    from app.demo_seeder import seed_demo_data, seed_initial_watchlist
+
     db = SessionLocal()
     try:
         rehydrate(db)
+        seed_initial_watchlist(db)
         if settings.demo_mode:
-            from app.demo_seeder import seed_demo_data
             seed_demo_data(db)
     finally:
         db.close()
+
     from app.bot.scheduler import start_scheduler
     start_scheduler(app)
 

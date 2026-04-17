@@ -37,25 +37,22 @@ def _get_scanner() -> WatchlistScanner:
     return WatchlistScanner(provider=provider, rules=_DEFAULT_RULES)
 
 
-def _build_watchlist_from_env() -> list[tuple[str, AssetClass]]:
+def _get_watchlist_symbols(db: Session) -> tuple[list[str], list[str]]:
+    items = db.query(WatchlistItem).filter(WatchlistItem.is_active == True).all()  # noqa: E712
+    if items:
+        stocks = [i.symbol for i in items if i.asset_class == "stock"]
+        crypto = [i.symbol for i in items if i.asset_class == "crypto"]
+        return stocks, crypto
+
     settings = get_settings()
-    pairs: list[tuple[str, AssetClass]] = []
-    for sym in settings.watchlist_stocks.split(","):
-        sym = sym.strip()
-        if sym:
-            pairs.append((sym, "stock"))
-    for sym in settings.watchlist_crypto.split(","):
-        sym = sym.strip()
-        if sym:
-            pairs.append((sym, "crypto"))
-    return pairs
+    stocks = [s.strip() for s in settings.watchlist_stocks.split(",") if s.strip()]
+    crypto = [s.strip() for s in settings.watchlist_crypto.split(",") if s.strip()]
+    return stocks, crypto
 
 
 def _build_watchlist(db: Session) -> list[tuple[str, AssetClass]]:
-    items = db.query(WatchlistItem).filter(WatchlistItem.is_active == True).all()  # noqa: E712
-    if items:
-        return [(item.symbol, item.asset_class) for item in items]
-    return _build_watchlist_from_env()
+    stocks, crypto = _get_watchlist_symbols(db)
+    return [(sym, "stock") for sym in stocks] + [(sym, "crypto") for sym in crypto]
 
 
 @router.get("/watchlist", response_model=WatchlistScanResult)

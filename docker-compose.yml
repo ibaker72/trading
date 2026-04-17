@@ -25,6 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://trading:trading@postgres:5432/trading
       REDIS_URL: redis://redis:6379/0
+      DEMO_MODE: ${DEMO_MODE:-false}
     ports:
       - "8000:8000"
     depends_on:

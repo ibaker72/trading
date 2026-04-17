@@ -21,6 +21,12 @@ import {
   Minus,
   Wifi,
   WifiOff,
+  Plus,
+  X,
+  Bitcoin,
+  BarChart2,
+  Shield,
+  Zap,
 } from "lucide-react";
 import {
   getBotSummary,
@@ -36,6 +42,10 @@ import {
   stopBot,
   pauseBot,
   setKillSwitch,
+  getWatchlist,
+  addWatchlistSymbol,
+  removeWatchlistSymbol,
+  getAppConfig,
   WS_BASE_URL,
   type BotSummary,
   type WatchlistScanResult,
@@ -46,6 +56,7 @@ import {
   type TradeJournalEntry,
   type MarketTick,
   type BacktestResult,
+  type WatchlistEntry,
 } from "@/lib/api";
 
 function StatusBadge({ status }: { status: string }) {
@@ -86,10 +97,8 @@ function MetricCard({
 }
 
 function SideIcon({ side }: { side: string }) {
-  if (side === "buy")
-    return <TrendingUp className="inline w-4 h-4 text-green-400" />;
-  if (side === "sell")
-    return <TrendingDown className="inline w-4 h-4 text-red-400" />;
+  if (side === "buy") return <TrendingUp className="inline w-4 h-4 text-green-400" />;
+  if (side === "sell") return <TrendingDown className="inline w-4 h-4 text-red-400" />;
   return <Minus className="inline w-4 h-4 text-gray-400" />;
 }
 
@@ -100,7 +109,7 @@ interface Toast {
 }
 
 function ToastContainer({ toasts }: { toasts: Toast[] }) {
-  if (toasts.length === 0) return null;
+  if (!toasts.length) return null;
   return (
     <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
       {toasts.map((t) => (
@@ -110,8 +119,8 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
             t.type === "success"
               ? "bg-green-900 border-green-700 text-green-200"
               : t.type === "error"
-              ? "bg-red-900 border-red-700 text-red-200"
-              : "bg-gray-800 border-gray-700 text-gray-200"
+                ? "bg-red-900 border-red-700 text-red-200"
+                : "bg-gray-800 border-gray-700 text-gray-200"
           }`}
         >
           {t.msg}
@@ -138,7 +147,6 @@ export default function Dashboard() {
   const wsRef = useRef<WebSocket | null>(null);
   const prevTradeIdsRef = useRef<Set<number>>(new Set());
 
-  // Backtest state
   const [btSymbols, setBtSymbols] = useState<string[]>([]);
   const [btSymbol, setBtSymbol] = useState("AAPL");
   const [btStart, setBtStart] = useState("2024-01-01");
@@ -148,6 +156,12 @@ export default function Dashboard() {
   const [btResult, setBtResult] = useState<BacktestResult | null>(null);
   const [btLoading, setBtLoading] = useState(false);
   const [btError, setBtError] = useState<string | null>(null);
+  const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([]);
+  const [demoMode, setDemoMode] = useState(false);
+  const [newSymbol, setNewSymbol] = useState("");
+  const [newSymbolClass, setNewSymbolClass] = useState<"stock" | "crypto">("stock");
+  const [watchlistLoading, setWatchlistLoading] = useState(false);
+  const [showHero, setShowHero] = useState(true);
 
   const addToast = useCallback((msg: string, type: Toast["type"] = "info") => {
     const id = ++toastIdRef.current;
@@ -170,13 +184,13 @@ export default function Dashboard() {
       if (perf) setPerformance(perf);
       setTrades(tradeList);
 
-      // Toast on newly closed trades
       if (tradeList.length > 0) {
         for (const t of tradeList) {
           if (!prevTradeIdsRef.current.has(t.id) && t.status !== "open") {
-            const pnlStr = t.realized_pnl != null
-              ? ` P&L: ${t.realized_pnl >= 0 ? "+" : ""}$${t.realized_pnl.toFixed(2)}`
-              : "";
+            const pnlStr =
+              t.realized_pnl != null
+                ? ` P&L: ${t.realized_pnl >= 0 ? "+" : ""}$${t.realized_pnl.toFixed(2)}`
+                : "";
             addToast(
               `${t.symbol} ${t.status.replace("_", " ")}${pnlStr}`,
               t.status === "took_profit" ? "success" : t.status === "stopped_out" ? "error" : "info",
@@ -192,12 +206,17 @@ export default function Dashboard() {
       getPortfolioHistory()
         .then(setPortfolio)
         .catch(() => {});
+      getWatchlist()
+        .then((items) => setWatchlist(items ?? []))
+        .catch(() => {});
+      getAppConfig()
+        .then((cfg) => setDemoMode(cfg?.demo_mode ?? false))
+        .catch(() => {});
     } catch (err) {
       setError(String(err));
     }
-  }, []);
+  }, [addToast]);
 
-  // WebSocket live price feed
   useEffect(() => {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -223,25 +242,24 @@ export default function Dashboard() {
         reconnectTimer = setTimeout(connect, 5000);
       };
 
-      ws.onerror = () => ws.close();
+      ws.onerror = () => {
+        ws.close();
+      };
     }
 
     connect();
-
     return () => {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       wsRef.current?.close();
     };
   }, []);
 
-  // Periodic data refresh (30s fallback)
   useEffect(() => {
     fetchAll();
-    const id = setInterval(fetchAll, 30_000);
+    const id = setInterval(fetchAll, 30000);
     return () => clearInterval(id);
   }, [fetchAll]);
 
-  // Load backtest symbols once on mount
   useEffect(() => {
     getBacktestSymbols()
       .then((d) => {
@@ -274,6 +292,54 @@ export default function Dashboard() {
     }
   }, [btSymbol, btStart, btEnd, btSlPct, btTpPct]);
 
+  const cryptoWatchlistSymbols = watchlist
+    .filter((w) => w.asset_class === "crypto")
+    .map((w) => w.symbol);
+
+  const cryptoPositions = positions.filter(
+    (position) =>
+      String((position as { asset_class?: string }).asset_class ?? "") === "crypto"
+      || cryptoWatchlistSymbols.includes(position.symbol),
+  );
+
+  async function handleAddSymbol() {
+    if (!newSymbol.trim()) return;
+    setWatchlistLoading(true);
+    try {
+      await addWatchlistSymbol(newSymbol.trim().toUpperCase(), newSymbolClass);
+      const updated = await getWatchlist().catch(() => []);
+      setWatchlist(updated ?? []);
+      setNewSymbol("");
+      try {
+        const scanResult = await getWatchlistScan();
+        setScan(scanResult ?? null);
+      } catch {
+        // noop
+      }
+    } catch {
+      // noop
+    }
+    setWatchlistLoading(false);
+  }
+
+  async function handleRemoveSymbol(symbol: string, assetClass: "stock" | "crypto") {
+    setWatchlistLoading(true);
+    try {
+      await removeWatchlistSymbol(symbol, assetClass);
+      const updated = await getWatchlist().catch(() => []);
+      setWatchlist(updated ?? []);
+      try {
+        const scanResult = await getWatchlistScan();
+        setScan(scanResult ?? null);
+      } catch {
+        // noop
+      }
+    } catch {
+      // noop
+    }
+    setWatchlistLoading(false);
+  }
+
   const portfolioChartData = portfolio?.timestamp?.map((ts, i) => ({
     time: new Date(ts * 1000).toLocaleTimeString([], {
       hour: "2-digit",
@@ -285,11 +351,56 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-950 p-4">
       <ToastContainer toasts={toasts} />
-      {/* Header */}
+      {showHero && (
+        <div className="relative mb-6 rounded-xl border border-green-500/30 bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 p-6">
+          <button
+            onClick={() => setShowHero(false)}
+            className="absolute right-4 top-4 text-gray-500 hover:text-white"
+          >
+            <X size={18} />
+          </button>
+          <div className="mb-4 flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-widest text-white">TRADEBOT PRO</h1>
+            {demoMode && (
+              <span className="rounded bg-yellow-500 px-2 py-0.5 text-xs font-bold text-black">
+                DEMO MODE
+              </span>
+            )}
+          </div>
+          <p className="mb-6 text-sm text-gray-400">Automated Day Trading for Stocks &amp; Crypto</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
+              <div className="mb-2 flex items-center gap-2 text-green-400">
+                <Shield size={16} />
+                <span className="text-xs font-bold uppercase">Risk-Managed</span>
+              </div>
+              <p className="text-xs text-gray-400">Kill switches, position limits, daily loss caps</p>
+            </div>
+            <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
+              <div className="mb-2 flex items-center gap-2 text-green-400">
+                <BarChart2 size={16} />
+                <span className="text-xs font-bold uppercase">Backtested Signals</span>
+              </div>
+              <p className="text-xs text-gray-400">Walk-forward tested, no look-ahead bias</p>
+            </div>
+            <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
+              <div className="mb-2 flex items-center gap-2 text-green-400">
+                <Zap size={16} />
+                <span className="text-xs font-bold uppercase">Real-Time Alerts</span>
+              </div>
+              <p className="text-xs text-gray-400">Slack, Discord &amp; email trade notifications</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6 border-b border-gray-800 pb-4">
         <div className="flex items-center gap-3">
           <Activity className="w-6 h-6 text-green-400" />
-          <h1 className="text-xl font-bold tracking-wider">TRADING BOT</h1>
+          <h1 className="text-xl font-bold tracking-wider text-white">TRADING BOT</h1>
+          {demoMode && (
+            <span className="rounded bg-yellow-500 px-2 py-0.5 text-xs font-bold text-black">DEMO</span>
+          )}
           {summary && <StatusBadge status={summary.status} />}
           <span
             title={wsConnected ? "Live feed connected" : "Live feed disconnected"}
@@ -300,7 +411,6 @@ export default function Dashboard() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {/* Kill switch */}
           <label className="flex items-center gap-2 text-xs text-gray-400 mr-4 cursor-pointer">
             <span>KILL SWITCH</span>
             <input
@@ -315,19 +425,19 @@ export default function Dashboard() {
           </label>
           <button
             onClick={() => startBot().then(fetchAll).catch(() => {})}
-            className="flex items-center gap-1 bg-green-700 hover:bg-green-600 px-3 py-1.5 rounded text-xs font-bold"
+            className="flex items-center gap-1 bg-green-700 hover:bg-green-600 px-3 py-1.5 rounded text-xs font-bold text-white"
           >
             <Play className="w-3 h-3" /> START
           </button>
           <button
             onClick={() => pauseBot().then(fetchAll).catch(() => {})}
-            className="flex items-center gap-1 bg-yellow-700 hover:bg-yellow-600 px-3 py-1.5 rounded text-xs font-bold"
+            className="flex items-center gap-1 bg-yellow-700 hover:bg-yellow-600 px-3 py-1.5 rounded text-xs font-bold text-white"
           >
             <Pause className="w-3 h-3" /> PAUSE
           </button>
           <button
             onClick={() => stopBot().then(fetchAll).catch(() => {})}
-            className="flex items-center gap-1 bg-red-800 hover:bg-red-700 px-3 py-1.5 rounded text-xs font-bold"
+            className="flex items-center gap-1 bg-red-800 hover:bg-red-700 px-3 py-1.5 rounded text-xs font-bold text-white"
           >
             <Square className="w-3 h-3" /> STOP
           </button>
@@ -341,7 +451,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <MetricCard
           label="ACCOUNT EQUITY"
@@ -359,7 +468,6 @@ export default function Dashboard() {
         <MetricCard
           label="ERRORS TODAY"
           value={summary?.errors_today ?? 0}
-          sub={summary?.last_error ?? undefined}
         />
         <MetricCard
           label="LAST SCAN"
@@ -371,7 +479,6 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Performance Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <MetricCard
           label="WIN RATE"
@@ -389,15 +496,9 @@ export default function Dashboard() {
         <MetricCard
           label="WIN/LOSS RATIO"
           value={performance ? performance.ratio.toFixed(2) : "—"}
-          sub={
-            performance
-              ? `avg win $${performance.avg_win.toFixed(2)} / loss $${performance.avg_loss.toFixed(2)}`
-              : undefined
-          }
         />
       </div>
 
-      {/* Portfolio Chart */}
       {portfolioChartData.length > 0 && (
         <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6">
           <h2 className="text-xs text-gray-400 mb-3 font-bold tracking-wider">
@@ -424,7 +525,7 @@ export default function Dashboard() {
                   borderRadius: 4,
                   fontSize: 12,
                 }}
-                formatter={(v: number) => [`$${v.toFixed(2)}`, "Equity"]}
+                formatter={(v) => [`$${Number(v ?? 0).toFixed(2)}`, "Equity"]}
               />
               <Line
                 type="monotone"
@@ -438,7 +539,54 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Scanner Table */}
+      <div className="mb-6 rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="mb-4 flex items-center gap-2">
+          <Bitcoin size={18} className="text-yellow-400" />
+          <h2 className="text-sm font-bold uppercase tracking-widest text-white">Crypto Portfolio</h2>
+        </div>
+        {cryptoPositions.length === 0 ? (
+          <div className="text-sm text-gray-500">
+            No open crypto positions.{" "}
+            {watchlist.filter((w) => w.asset_class === "crypto").length > 0 && (
+              <span>
+                Watching{" "}
+                {watchlist.filter((w) => w.asset_class === "crypto").map((w) => w.symbol).join(", ")}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500">
+                  <th className="pb-2 pr-4">SYMBOL</th>
+                  <th className="pb-2 pr-4">QTY</th>
+                  <th className="pb-2 pr-4">AVG ENTRY</th>
+                  <th className="pb-2 pr-4">CURRENT</th>
+                  <th className="pb-2">P&amp;L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cryptoPositions.map((position) => {
+                  const pnl = parseFloat(position.unrealized_pl ?? "0");
+                  return (
+                    <tr key={position.symbol} className="border-t border-gray-800">
+                      <td className="py-2 pr-4 font-mono text-yellow-400">{position.symbol}</td>
+                      <td className="py-2 pr-4 text-gray-300">{position.qty ?? "0"}</td>
+                      <td className="py-2 pr-4 text-gray-300">${parseFloat(position.avg_entry_price ?? "0").toFixed(2)}</td>
+                      <td className="py-2 pr-4 text-gray-300">${parseFloat(livePrices[position.symbol]?.toString() ?? position.current_price ?? "0").toFixed(2)}</td>
+                      <td className={`py-2 font-mono ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                        {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6 overflow-x-auto">
         <h2 className="text-xs text-gray-400 mb-3 font-bold tracking-wider">
           WATCHLIST SCANNER
@@ -466,29 +614,17 @@ export default function Dashboard() {
                 key={r.symbol}
                 className={`border-b border-gray-800/50 ${r.should_trade ? "bg-green-950/30" : ""}`}
               >
-                <td className="py-1.5 pr-4 font-bold">{r.symbol}</td>
+                <td className="py-1.5 pr-4 font-bold text-white">{r.symbol}</td>
                 <td className="py-1.5 pr-4 text-gray-400">{r.asset_class}</td>
                 <td className="py-1.5 pr-4 text-right font-mono text-cyan-400">
-                  {livePrices[r.symbol] != null
-                    ? `$${livePrices[r.symbol].toFixed(2)}`
-                    : <span className="text-gray-700">—</span>}
+                  {livePrices[r.symbol] != null ? `$${livePrices[r.symbol].toFixed(2)}` : <span className="text-gray-700">—</span>}
                 </td>
                 <td className="py-1.5 pr-4 text-right">
-                  <span
-                    className={
-                      r.aggregate_score >= 0.6
-                        ? "text-green-400"
-                        : r.aggregate_score >= 0.3
-                        ? "text-yellow-400"
-                        : "text-gray-500"
-                    }
-                  >
+                  <span className={r.aggregate_score >= 0.6 ? "text-green-400" : r.aggregate_score >= 0.3 ? "text-yellow-400" : "text-gray-500"}>
                     {(r.aggregate_score * 100).toFixed(0)}%
                   </span>
                 </td>
-                <td className="py-1.5 pr-4 text-gray-400">
-                  {r.fired_timeframes.join(", ") || "—"}
-                </td>
+                <td className="py-1.5 pr-4 text-gray-400">{r.fired_timeframes.join(", ") || "—"}</td>
                 <td className="py-1.5 pr-4">
                   <SideIcon side={r.suggested_side} />
                   <span
@@ -517,8 +653,61 @@ export default function Dashboard() {
         </table>
       </div>
 
+      <div className="mb-6 rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-widest text-white">Watchlist Manager</h2>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {watchlist.map((item) => (
+            <span
+              key={`${item.symbol}-${item.asset_class}`}
+              className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold ${
+                item.asset_class === "crypto"
+                  ? "border border-yellow-500/40 bg-yellow-500/10 text-yellow-300"
+                  : "border border-indigo-500/40 bg-indigo-500/10 text-indigo-300"
+              }`}
+            >
+              {item.symbol}
+              <button
+                onClick={() => handleRemoveSymbol(item.symbol, item.asset_class)}
+                disabled={watchlistLoading}
+                className="ml-1 text-gray-400 hover:text-white disabled:opacity-50"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          {watchlist.length === 0 && <span className="text-xs text-gray-500">No symbols in watchlist</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={newSymbol}
+            onChange={(e) => setNewSymbol((e.target.value ?? "").toUpperCase())}
+            onKeyDown={(e) => e.key === "Enter" && handleAddSymbol()}
+            placeholder="e.g. MSFT"
+            disabled={watchlistLoading}
+            className="w-32 rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:border-green-500 focus:outline-none disabled:opacity-50"
+          />
+          <select
+            value={newSymbolClass}
+            onChange={(e) => setNewSymbolClass((e.target.value as "stock" | "crypto") ?? "stock")}
+            disabled={watchlistLoading}
+            className="rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-white focus:border-green-500 focus:outline-none disabled:opacity-50"
+          >
+            <option value="stock">Stock</option>
+            <option value="crypto">Crypto</option>
+          </select>
+          <button
+            onClick={handleAddSymbol}
+            disabled={watchlistLoading || !newSymbol.trim()}
+            className="flex items-center gap-1 rounded bg-green-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-green-500 disabled:opacity-50"
+          >
+            <Plus size={14} />
+            Add
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        {/* Open Positions */}
         <div className="bg-gray-900 border border-gray-800 rounded p-4 overflow-x-auto">
           <h2 className="text-xs text-gray-400 mb-3 font-bold tracking-wider">
             OPEN POSITIONS
@@ -530,7 +719,7 @@ export default function Dashboard() {
                 <th className="text-right py-1 pr-3">QTY</th>
                 <th className="text-right py-1 pr-3">AVG</th>
                 <th className="text-right py-1 pr-3">CURR</th>
-                <th className="text-right py-1">P&L</th>
+                <th className="text-right py-1">P&amp;L</th>
               </tr>
             </thead>
             <tbody>
@@ -538,19 +727,16 @@ export default function Dashboard() {
                 const pnl = parseFloat(p.unrealized_pl);
                 return (
                   <tr key={p.symbol} className="border-b border-gray-800/50">
-                    <td className="py-1.5 pr-3 font-bold">{p.symbol}</td>
-                    <td className="py-1.5 pr-3 text-right">{p.qty}</td>
-                    <td className="py-1.5 pr-3 text-right">
+                    <td className="py-1.5 pr-3 font-bold text-white">{p.symbol}</td>
+                    <td className="py-1.5 pr-3 text-right text-gray-300">{p.qty}</td>
+                    <td className="py-1.5 pr-3 text-right text-gray-300">
                       ${parseFloat(p.avg_entry_price).toFixed(2)}
                     </td>
-                    <td className="py-1.5 pr-3 text-right">
+                    <td className="py-1.5 pr-3 text-right text-gray-300">
                       ${parseFloat(p.current_price).toFixed(2)}
                     </td>
-                    <td
-                      className={`py-1.5 text-right font-bold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                    >
-                      {pnl >= 0 ? "+" : ""}
-                      {pnl.toFixed(2)}
+                    <td className={`py-1.5 text-right font-bold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}
                     </td>
                   </tr>
                 );
@@ -566,7 +752,6 @@ export default function Dashboard() {
           </table>
         </div>
 
-        {/* Recent Orders */}
         <div className="bg-gray-900 border border-gray-800 rounded p-4 overflow-x-auto">
           <h2 className="text-xs text-gray-400 mb-3 font-bold tracking-wider">
             RECENT BOT ORDERS
@@ -584,19 +769,13 @@ export default function Dashboard() {
             <tbody>
               {history.map((o) => (
                 <tr key={o.id} className="border-b border-gray-800/50">
-                  <td className="py-1.5 pr-3 font-bold">{o.symbol}</td>
-                  <td
-                    className={`py-1.5 pr-3 ${o.side === "buy" ? "text-green-400" : "text-red-400"}`}
-                  >
+                  <td className="py-1.5 pr-3 font-bold text-white">{o.symbol}</td>
+                  <td className={`py-1.5 pr-3 ${o.side === "buy" ? "text-green-400" : "text-red-400"}`}>
                     {o.side.toUpperCase()}
                   </td>
-                  <td className="py-1.5 pr-3 text-right">{o.quantity}</td>
-                  <td className="py-1.5 pr-3 text-right">
-                    {o.fill_price > 0 ? `$${o.fill_price.toFixed(2)}` : "—"}
-                  </td>
-                  <td className="py-1.5 text-gray-400">
-                    {new Date(o.created_at).toLocaleTimeString()}
-                  </td>
+                  <td className="py-1.5 pr-3 text-right text-gray-300">{o.quantity}</td>
+                  <td className="py-1.5 pr-3 text-right text-gray-300">{o.fill_price > 0 ? `$${o.fill_price.toFixed(2)}` : "—"}</td>
+                  <td className="py-1.5 text-gray-400">{new Date(o.created_at).toLocaleTimeString()}</td>
                 </tr>
               ))}
               {history.length === 0 && (
@@ -611,11 +790,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Trade Journal */}
       <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6 overflow-x-auto">
-        <h2 className="text-xs text-gray-400 mb-3 font-bold tracking-wider">
-          TRADE JOURNAL
-        </h2>
+        <h2 className="text-xs text-gray-400 mb-3 font-bold tracking-wider">TRADE JOURNAL</h2>
         <table className="w-full text-xs">
           <thead>
             <tr className="text-gray-500 border-b border-gray-800">
@@ -625,7 +801,7 @@ export default function Dashboard() {
               <th className="text-right py-1 pr-3">EXIT</th>
               <th className="text-right py-1 pr-3">SL</th>
               <th className="text-right py-1 pr-3">TP</th>
-              <th className="text-right py-1 pr-3">P&L</th>
+              <th className="text-right py-1 pr-3">P&amp;L</th>
               <th className="text-left py-1 pr-3">STATUS</th>
               <th className="text-left py-1">OPENED</th>
             </tr>
@@ -638,45 +814,24 @@ export default function Dashboard() {
                 took_profit: "text-green-400",
                 stopped_out: "text-red-400",
               };
-              const pnlColor =
-                t.realized_pnl == null
-                  ? "text-gray-500"
-                  : t.realized_pnl >= 0
-                  ? "text-green-400"
-                  : "text-red-400";
+              const pnlColor = t.realized_pnl == null ? "text-gray-500" : t.realized_pnl >= 0 ? "text-green-400" : "text-red-400";
               return (
                 <tr key={t.id} className="border-b border-gray-800/50">
-                  <td className="py-1.5 pr-3 font-bold">{t.symbol}</td>
-                  <td
-                    className={`py-1.5 pr-3 ${t.side === "buy" ? "text-green-400" : "text-red-400"}`}
-                  >
+                  <td className="py-1.5 pr-3 font-bold text-white">{t.symbol}</td>
+                  <td className={`py-1.5 pr-3 ${t.side === "buy" ? "text-green-400" : "text-red-400"}`}>
                     {t.side.toUpperCase()}
                   </td>
-                  <td className="py-1.5 pr-3 text-right">
-                    ${t.entry_price.toFixed(4)}
-                  </td>
-                  <td className="py-1.5 pr-3 text-right">
-                    {t.exit_price != null ? `$${t.exit_price.toFixed(4)}` : "—"}
-                  </td>
-                  <td className="py-1.5 pr-3 text-right text-red-400/70">
-                    ${t.stop_loss_price.toFixed(4)}
-                  </td>
-                  <td className="py-1.5 pr-3 text-right text-green-400/70">
-                    ${t.take_profit_price.toFixed(4)}
-                  </td>
+                  <td className="py-1.5 pr-3 text-right text-gray-300">${t.entry_price.toFixed(4)}</td>
+                  <td className="py-1.5 pr-3 text-right text-gray-300">{t.exit_price != null ? `$${t.exit_price.toFixed(4)}` : "—"}</td>
+                  <td className="py-1.5 pr-3 text-right text-red-400/70">${t.stop_loss_price.toFixed(4)}</td>
+                  <td className="py-1.5 pr-3 text-right text-green-400/70">${t.take_profit_price.toFixed(4)}</td>
                   <td className={`py-1.5 pr-3 text-right font-bold ${pnlColor}`}>
-                    {t.realized_pnl != null
-                      ? `${t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}`
-                      : "—"}
+                    {t.realized_pnl != null ? `${t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}` : "—"}
                   </td>
-                  <td
-                    className={`py-1.5 pr-3 ${statusColors[t.status] ?? "text-gray-400"}`}
-                  >
+                  <td className={`py-1.5 pr-3 ${statusColors[t.status] ?? "text-gray-400"}`}>
                     {t.status.replace("_", " ").toUpperCase()}
                   </td>
-                  <td className="py-1.5 text-gray-500">
-                    {new Date(t.opened_at).toLocaleTimeString()}
-                  </td>
+                  <td className="py-1.5 text-gray-500">{new Date(t.opened_at).toLocaleTimeString()}</td>
                 </tr>
               );
             })}
@@ -691,74 +846,33 @@ export default function Dashboard() {
         </table>
       </div>
 
-      {/* ── Backtest Panel ─────────────────────────────────────── */}
       <div className="bg-gray-900 border border-gray-800 rounded p-4 mb-6">
-        <h2 className="text-xs text-gray-400 mb-4 font-bold tracking-wider">
-          STRATEGY BACKTEST
-        </h2>
-
-        {/* Controls */}
+        <h2 className="text-xs text-gray-400 mb-4 font-bold tracking-wider">STRATEGY BACKTEST</h2>
         <div className="flex flex-wrap gap-3 mb-4">
           <div className="flex flex-col gap-1">
             <label className="text-gray-500 text-xs">SYMBOL</label>
-            <select
-              value={btSymbol}
-              onChange={(e) => setBtSymbol(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
-            >
-              {btSymbols.length > 0
-                ? btSymbols.map((s) => <option key={s}>{s}</option>)
-                : <option>{btSymbol}</option>}
+            <select value={btSymbol} onChange={(e) => setBtSymbol(e.target.value)} className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white">
+              {btSymbols.length > 0 ? btSymbols.map((s) => <option key={s}>{s}</option>) : <option>{btSymbol}</option>}
             </select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-gray-500 text-xs">START</label>
-            <input
-              type="date"
-              value={btStart}
-              onChange={(e) => setBtStart(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
-            />
+            <input type="date" value={btStart} onChange={(e) => setBtStart(e.target.value)} className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white" />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-gray-500 text-xs">END</label>
-            <input
-              type="date"
-              value={btEnd}
-              onChange={(e) => setBtEnd(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
-            />
+            <input type="date" value={btEnd} onChange={(e) => setBtEnd(e.target.value)} className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white" />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-gray-500 text-xs">SL %</label>
-            <input
-              type="number"
-              min={0.1}
-              max={20}
-              step={0.1}
-              value={btSlPct}
-              onChange={(e) => setBtSlPct(parseFloat(e.target.value))}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white w-20"
-            />
+            <input type="number" min={0.1} max={20} step={0.1} value={btSlPct} onChange={(e) => setBtSlPct(parseFloat(e.target.value))} className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white w-20" />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-gray-500 text-xs">TP %</label>
-            <input
-              type="number"
-              min={0.1}
-              max={50}
-              step={0.1}
-              value={btTpPct}
-              onChange={(e) => setBtTpPct(parseFloat(e.target.value))}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white w-20"
-            />
+            <input type="number" min={0.1} max={50} step={0.1} value={btTpPct} onChange={(e) => setBtTpPct(parseFloat(e.target.value))} className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white w-20" />
           </div>
           <div className="flex items-end">
-            <button
-              onClick={handleRunBacktest}
-              disabled={btLoading}
-              className="bg-blue-700 hover:bg-blue-600 disabled:bg-gray-700 px-4 py-1.5 rounded text-xs font-bold"
-            >
+            <button onClick={handleRunBacktest} disabled={btLoading} className="bg-blue-700 hover:bg-blue-600 disabled:bg-gray-700 px-4 py-1.5 rounded text-xs font-bold text-white">
               {btLoading ? "RUNNING…" : "RUN BACKTEST"}
             </button>
           </div>
@@ -773,37 +887,18 @@ export default function Dashboard() {
 
         {btResult && (
           <>
-            {/* Metrics row */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-              <MetricCard
-                label="TRADES"
-                value={btResult.metrics.total_trades}
-                sub={`${btResult.total_bars} bars`}
-              />
-              <MetricCard
-                label="WIN RATE"
-                value={`${(btResult.metrics.win_rate * 100).toFixed(1)}%`}
-              />
+              <MetricCard label="TRADES" value={btResult.metrics.total_trades} sub={`${btResult.total_bars} bars`} />
+              <MetricCard label="WIN RATE" value={`${(btResult.metrics.win_rate * 100).toFixed(1)}%`} />
               <MetricCard
                 label="TOTAL P&L"
-                value={
-                  btResult.metrics.total_pnl >= 0
-                    ? `+$${btResult.metrics.total_pnl.toFixed(2)}`
-                    : `-$${Math.abs(btResult.metrics.total_pnl).toFixed(2)}`
-                }
+                value={btResult.metrics.total_pnl >= 0 ? `+$${btResult.metrics.total_pnl.toFixed(2)}` : `-$${Math.abs(btResult.metrics.total_pnl).toFixed(2)}`}
                 sub={`end equity $${btResult.metrics.ending_equity.toLocaleString()}`}
               />
-              <MetricCard
-                label="SHARPE"
-                value={btResult.metrics.sharpe.toFixed(2)}
-              />
-              <MetricCard
-                label="MAX DRAWDOWN"
-                value={`${(btResult.metrics.max_drawdown * 100).toFixed(2)}%`}
-              />
+              <MetricCard label="SHARPE" value={btResult.metrics.sharpe.toFixed(2)} />
+              <MetricCard label="MAX DRAWDOWN" value={`${(btResult.metrics.max_drawdown * 100).toFixed(2)}%`} />
             </div>
 
-            {/* Equity curve */}
             {btResult.equity_curve.length > 1 && (
               <div className="mb-4">
                 <div className="text-xs text-gray-500 mb-2">EQUITY CURVE</div>
@@ -826,7 +921,7 @@ export default function Dashboard() {
                         borderRadius: 4,
                         fontSize: 11,
                       }}
-                      formatter={(v: number) => [`$${v.toFixed(2)}`, "Equity"]}
+                      formatter={(v) => [`$${Number(v ?? 0).toFixed(2)}`, "Equity"]}
                       labelFormatter={() => ""}
                     />
                     <Line
@@ -841,7 +936,6 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Trades table */}
             <div className="overflow-x-auto">
               <div className="text-xs text-gray-500 mb-2">
                 SIMULATED TRADES ({btResult.trades.length})
@@ -854,7 +948,7 @@ export default function Dashboard() {
                     <th className="text-right py-1 pr-3">ENTRY</th>
                     <th className="text-right py-1 pr-3">EXIT</th>
                     <th className="text-right py-1 pr-3">QTY</th>
-                    <th className="text-right py-1 pr-3">P&L</th>
+                    <th className="text-right py-1 pr-3">P&amp;L</th>
                     <th className="text-left py-1 pr-3">STATUS</th>
                     <th className="text-left py-1">RULES FIRED</th>
                   </tr>
@@ -867,50 +961,28 @@ export default function Dashboard() {
                       closed: "text-gray-400",
                       open: "text-yellow-400",
                     };
-                    const pnlColor =
-                      t.realized_pnl == null
-                        ? "text-gray-500"
-                        : t.realized_pnl >= 0
-                        ? "text-green-400"
-                        : "text-red-400";
+                    const pnlColor = t.realized_pnl == null ? "text-gray-500" : t.realized_pnl >= 0 ? "text-green-400" : "text-red-400";
                     return (
                       <tr key={i} className="border-b border-gray-800/50">
                         <td className="py-1 pr-3 text-gray-300">{t.entry_date}</td>
-                        <td className="py-1 pr-3 text-gray-400">
-                          {t.exit_date ?? "—"}
-                        </td>
-                        <td className="py-1 pr-3 text-right">
-                          ${t.entry_price.toFixed(2)}
-                        </td>
-                        <td className="py-1 pr-3 text-right">
-                          {t.exit_price != null
-                            ? `$${t.exit_price.toFixed(2)}`
-                            : "—"}
-                        </td>
-                        <td className="py-1 pr-3 text-right text-gray-400">
-                          {t.quantity}
-                        </td>
+                        <td className="py-1 pr-3 text-gray-400">{t.exit_date ?? "—"}</td>
+                        <td className="py-1 pr-3 text-right text-gray-300">${t.entry_price.toFixed(2)}</td>
+                        <td className="py-1 pr-3 text-right text-gray-300">{t.exit_price != null ? `$${t.exit_price.toFixed(2)}` : "—"}</td>
+                        <td className="py-1 pr-3 text-right text-gray-400">{t.quantity}</td>
                         <td className={`py-1 pr-3 text-right font-bold ${pnlColor}`}>
-                          {t.realized_pnl != null
-                            ? `${t.realized_pnl >= 0 ? "+" : ""}$${t.realized_pnl.toFixed(2)}`
-                            : "—"}
+                          {t.realized_pnl != null ? `${t.realized_pnl >= 0 ? "+" : ""}$${t.realized_pnl.toFixed(2)}` : "—"}
                         </td>
-                        <td
-                          className={`py-1 pr-3 ${statusColors[t.status] ?? "text-gray-400"}`}
-                        >
+                        <td className={`py-1 pr-3 ${statusColors[t.status] ?? "text-gray-400"}`}>
                           {t.status.replace("_", " ").toUpperCase()}
                         </td>
-                        <td className="py-1 text-gray-600 text-xs">
-                          {t.fired_rules.join(", ") || "—"}
-                        </td>
+                        <td className="py-1 text-gray-600 text-xs">{t.fired_rules.join(", ") || "—"}</td>
                       </tr>
                     );
                   })}
                   {btResult.trades.length === 0 && (
                     <tr>
                       <td colSpan={8} className="py-4 text-center text-gray-600">
-                        No signals fired in this date range. Try a wider range or
-                        lower min_signal_score.
+                        No signals fired in this date range. Try a wider range or lower min_signal_score.
                       </td>
                     </tr>
                   )}
