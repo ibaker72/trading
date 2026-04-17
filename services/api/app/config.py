@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     stop_loss_pct: float = 1.0
     take_profit_pct: float = 2.0
 
+    # Demo mode
+    demo_mode: bool = False
+
     # Notifications
     notify_webhook_url: str = ""
     notify_email_to: str = ""

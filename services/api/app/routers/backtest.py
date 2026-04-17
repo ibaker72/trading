@@ -5,10 +5,13 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
 from app.backtest.schemas import BacktestRequest, BacktestResult
 from app.config import get_settings
+from app.database import get_db
+from app.models import WatchlistItem
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
@@ -58,14 +61,19 @@ def run_backtest(request: BacktestRequest) -> BacktestResult:
 
 
 @router.get("/symbols")
-def list_symbols() -> dict:
+def list_symbols(db: Session = Depends(get_db)) -> dict:
     """
-    Return the configured watchlist symbols, grouped by asset class.
-    These are the symbols supported by the live bot and the backtester.
+    Return the watchlist symbols, grouped by asset class.
+    Prefers DB watchlist; falls back to env-var config.
     """
-    settings = get_settings()
-    stocks = [s.strip() for s in settings.watchlist_stocks.split(",") if s.strip()]
-    crypto = [s.strip() for s in settings.watchlist_crypto.split(",") if s.strip()]
+    items = db.query(WatchlistItem).filter(WatchlistItem.is_active == True).all()  # noqa: E712
+    if items:
+        stocks = [i.symbol for i in items if i.asset_class == "stock"]
+        crypto = [i.symbol for i in items if i.asset_class == "crypto"]
+    else:
+        settings = get_settings()
+        stocks = [s.strip() for s in settings.watchlist_stocks.split(",") if s.strip()]
+        crypto = [s.strip() for s in settings.watchlist_crypto.split(",") if s.strip()]
     return {
         "stocks": stocks,
         "crypto": crypto,

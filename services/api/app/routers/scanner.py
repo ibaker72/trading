@@ -1,8 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.database import get_db
 from app.market_data.providers.mock import MockMarketDataProvider
 from app.market_data.schemas import AssetClass
+from app.models import WatchlistItem
 from app.strategy.scanner import WatchlistScanner
 from app.strategy.schemas import MultiTimeframeScanResult, StrategyRule, WatchlistScanResult
 
@@ -34,7 +37,7 @@ def _get_scanner() -> WatchlistScanner:
     return WatchlistScanner(provider=provider, rules=_DEFAULT_RULES)
 
 
-def _build_watchlist() -> list[tuple[str, AssetClass]]:
+def _build_watchlist_from_env() -> list[tuple[str, AssetClass]]:
     settings = get_settings()
     pairs: list[tuple[str, AssetClass]] = []
     for sym in settings.watchlist_stocks.split(","):
@@ -48,10 +51,17 @@ def _build_watchlist() -> list[tuple[str, AssetClass]]:
     return pairs
 
 
+def _build_watchlist(db: Session) -> list[tuple[str, AssetClass]]:
+    items = db.query(WatchlistItem).filter(WatchlistItem.is_active == True).all()  # noqa: E712
+    if items:
+        return [(item.symbol, item.asset_class) for item in items]
+    return _build_watchlist_from_env()
+
+
 @router.get("/watchlist", response_model=WatchlistScanResult)
-def scan_watchlist() -> WatchlistScanResult:
+def scan_watchlist(db: Session = Depends(get_db)) -> WatchlistScanResult:
     scanner = _get_scanner()
-    watchlist = _build_watchlist()
+    watchlist = _build_watchlist(db)
     return scanner.scan_watchlist(watchlist)
 
 
@@ -65,9 +75,9 @@ def scan_symbol(
 
 
 @router.get("/top-pick", response_model=MultiTimeframeScanResult)
-def top_pick() -> MultiTimeframeScanResult:
+def top_pick(db: Session = Depends(get_db)) -> MultiTimeframeScanResult:
     scanner = _get_scanner()
-    watchlist = _build_watchlist()
+    watchlist = _build_watchlist(db)
     result = scanner.scan_watchlist(watchlist)
     if result.top_pick is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No tradeable pick found")

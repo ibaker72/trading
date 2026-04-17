@@ -218,6 +218,17 @@ class BotSession(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class WatchlistItem(Base):
+    __tablename__ = "watchlist_items"
+    __table_args__ = (UniqueConstraint("symbol", "asset_class", name="uq_watchlist_symbol_class"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    asset_class = Column(Enum("stock", "crypto", name="watchlist_asset_class_enum"), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class NotificationConfig(Base):
     __tablename__ = "notification_configs"
 

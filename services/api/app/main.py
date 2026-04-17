@@ -7,6 +7,7 @@ from app.routers import auth, health, markets, paper, risk, strategies
 from app.routers import broker, scanner, bot, analytics, notifications as notifications_router
 from app.routers import ws as ws_router
 from app.routers import backtest as backtest_router
+from app.routers import watchlist as watchlist_router
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name)
@@ -23,12 +24,14 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
-    # Rehydrate bot state from last DB session
     from app.database import SessionLocal
     from app.bot.state import rehydrate
     db = SessionLocal()
     try:
         rehydrate(db)
+        if settings.demo_mode:
+            from app.demo_seeder import seed_demo_data
+            seed_demo_data(db)
     finally:
         db.close()
     from app.bot.scheduler import start_scheduler
@@ -54,3 +57,4 @@ app.include_router(analytics.router)
 app.include_router(notifications_router.router)
 app.include_router(ws_router.router)
 app.include_router(backtest_router.router)
+app.include_router(watchlist_router.router)

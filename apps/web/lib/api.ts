@@ -269,3 +269,38 @@ export async function getBacktestSymbols(): Promise<{ stocks: string[]; crypto: 
   const res = await api.get("/backtest/symbols");
   return res.data;
 }
+
+// ---------------------------------------------------------------------------
+// Watchlist
+// ---------------------------------------------------------------------------
+
+export interface WatchlistEntry {
+  id: number;
+  symbol: string;
+  asset_class: string;
+  is_active: boolean;
+  added_at: string;
+}
+
+export async function getWatchlist(): Promise<WatchlistEntry[]> {
+  const res = await api.get("/watchlist");
+  return res.data;
+}
+
+export async function addWatchlistSymbol(symbol: string, asset_class: string): Promise<WatchlistEntry> {
+  const res = await api.post("/watchlist", { symbol, asset_class });
+  return res.data;
+}
+
+export async function removeWatchlistSymbol(symbol: string): Promise<void> {
+  await api.delete(`/watchlist/${symbol}`);
+}
+
+// ---------------------------------------------------------------------------
+// App config
+// ---------------------------------------------------------------------------
+
+export async function getAppConfig(): Promise<{ demo_mode: boolean }> {
+  const res = await api.get("/health/config");
+  return res.data;
+}
